@@ -16,6 +16,12 @@
     "install": "bash bin/install.sh"
   },
   "keywords": ["mcp", "skills", "librarian", "bm25", "security"],
+  "author": "Penumbra Forge <hello@penumbraforge.com> (https://penumbraforge.com)",
   "license": "MIT",
+  "homepage": "https://penumbraforge.com/librarian",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rngdz/mcp-librarian.git"
+  },
   "dependencies": {}
 }

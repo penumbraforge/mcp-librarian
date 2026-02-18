@@ -2,10 +2,12 @@
 
 /**
  * mcp-librarian-stdio — Thin NDJSON ↔ length-prefixed frame proxy.
- * Connects to the forge Unix domain socket and translates between
+ * Connects to the librarian Unix domain socket and translates between
  * stdio NDJSON (what MCP clients speak) and binary framing (what the server speaks).
- *
  * Also handles HMAC authentication transparently.
+ *
+ * Part of MCP Librarian by Penumbra Forge
+ * https://penumbraforge.com/librarian | MIT License
  */
 
 import { connect } from 'node:net';

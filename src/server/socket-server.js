@@ -52,14 +52,23 @@ export class SocketServer {
 
     this.auditLog?.log({ event: 'connect', connId: conn.id });
 
-    // Start auth
+    // Start auth with timeout (5s to complete auth or get disconnected)
     this.authenticator.beginAuth(conn);
+    conn._authTimer = setTimeout(() => {
+      if (!conn.authenticated) {
+        this.auditLog?.log({ event: 'auth_timeout', connId: conn.id });
+        conn.close();
+      }
+    }, 5000);
 
     socket.on('data', chunk => {
       try {
         const frames = conn.decoder.push(chunk);
         for (const msg of frames) {
-          this._handleMessage(conn, msg);
+          this._handleMessage(conn, msg).catch(e => {
+            this.auditLog?.log({ event: 'dispatch_error', connId: conn.id, error: e.message });
+            conn.close();
+          });
         }
       } catch (e) {
         this.auditLog?.log({ event: 'frame_error', connId: conn.id, error: e.message });
@@ -68,6 +77,7 @@ export class SocketServer {
     });
 
     socket.on('close', () => {
+      clearTimeout(conn._authTimer);
       this.connections.delete(conn.id);
       this.rateLimiter.remove(conn.id);
       this.auditLog?.log({ event: 'disconnect', connId: conn.id });

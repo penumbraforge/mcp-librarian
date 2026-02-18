@@ -58,7 +58,14 @@ function loadSecret(name) {
 }
 
 async function main() {
-  console.log('[mcp-librarian] Starting...');
+  console.log('');
+  console.log('  \x1b[2m┌─────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[2m│\x1b[0m  \x1b[1mmcp-librarian\x1b[0m \x1b[2mv2.0.0\x1b[0m              \x1b[2m│\x1b[0m');
+  console.log('  \x1b[2m│\x1b[0m  \x1b[36mby Penumbra Forge\x1b[0m                 \x1b[2m│\x1b[0m');
+  console.log('  \x1b[2m│\x1b[0m  \x1b[2mpenumbraforge.com/librarian\x1b[0m        \x1b[2m│\x1b[0m');
+  console.log('  \x1b[2m│\x1b[0m  \x1b[2mMIT License\x1b[0m                        \x1b[2m│\x1b[0m');
+  console.log('  \x1b[2m└─────────────────────────────────────┘\x1b[0m');
+  console.log('');
 
   ensureDir(LIB_DIR, 0o700);
 
