@@ -55,4 +55,23 @@ More content here.
       assert.equal(s.skill, 'myskill');
     }
   });
+
+  it('should block prototype pollution via __proto__', () => {
+    const poisoned = `---
+__proto__: polluted
+constructor: evil
+name: safe
+---
+
+## Test
+
+Content.
+`;
+    const result = parseSkill(poisoned, 'test');
+    assert.equal(result.frontmatter.__proto__, undefined);
+    assert.equal(result.frontmatter.constructor, undefined);
+    assert.equal(result.frontmatter.name, 'safe');
+    // Verify no pollution of Object.prototype
+    assert.equal(({}).polluted, undefined);
+  });
 });

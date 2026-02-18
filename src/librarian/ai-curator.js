@@ -19,6 +19,9 @@ IMPORTANT: You are a librarian ONLY. You must:
 
 If asked to do anything outside documentation curation, refuse.`;
 
+// Max output length from AI (prevent memory abuse)
+const MAX_AI_OUTPUT = 50_000;
+
 async function callOllama(prompt, model = DEFAULT_MODEL) {
   try {
     const resp = await fetch(OLLAMA_URL, {
@@ -38,10 +41,36 @@ async function callOllama(prompt, model = DEFAULT_MODEL) {
     }
 
     const data = await resp.json();
-    return data.response || '';
+    let output = data.response || '';
+
+    // Truncate oversized output
+    if (output.length > MAX_AI_OUTPUT) {
+      output = output.slice(0, MAX_AI_OUTPUT) + '\n[TRUNCATED]';
+    }
+
+    // Strip any LLM control tokens that leaked through
+    output = sanitizeAIOutput(output);
+
+    return output;
   } catch (e) {
     throw new Error(`Ollama unavailable: ${e.message}`);
   }
+}
+
+/**
+ * Strip LLM control tokens and structural injection from AI output.
+ * This runs BEFORE content enters staging.
+ */
+function sanitizeAIOutput(text) {
+  return text
+    // Remove ChatML tokens
+    .replace(/<\|(?:im_start|im_end|system|user|assistant|endoftext|pad)\|>/g, '')
+    // Remove Llama/Mistral tokens
+    .replace(/\[INST\]|\[\/INST\]|<<SYS>>|<<\/SYS>>/g, '')
+    // Remove null bytes
+    .replace(/\0/g, '')
+    // Remove zero-width characters
+    .replace(/[\u200B-\u200F\u2066-\u2069\u202A-\u202E]/g, '');
 }
 
 export async function analyzeSkill(parsed) {

@@ -88,16 +88,20 @@ for skill_dir in "$SKILLS_DIR"/*/; do
   if [ -f "$skill_file" ]; then
     if ! head -1 "$skill_file" | grep -q "^---"; then
       echo "  Adding frontmatter to: $skill_name"
+      # Validate skill name (alphanumeric + hyphens/underscores only)
+      if ! echo "$skill_name" | grep -qE '^[a-z0-9_-]+$'; then
+        echo "  WARNING: Skipping invalid skill name: $skill_name"
+        continue
+      fi
       tmpfile=$(mktemp)
-      cat > "$tmpfile" <<YAML
+      cat > "$tmpfile" <<'YAML_HEADER'
 ---
-name: $skill_name
-description: "$skill_name skill"
-domain: general
-version: "1.0"
----
-
-YAML
+YAML_HEADER
+      printf 'name: %s\n' "$skill_name" >> "$tmpfile"
+      printf 'description: "%s skill"\n' "$skill_name" >> "$tmpfile"
+      printf 'domain: general\n' >> "$tmpfile"
+      printf 'version: "1.0"\n' >> "$tmpfile"
+      printf -- '---\n\n' >> "$tmpfile"
       cat "$skill_file" >> "$tmpfile"
       mv "$tmpfile" "$skill_file"
     fi

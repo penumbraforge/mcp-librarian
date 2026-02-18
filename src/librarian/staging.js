@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { parseSkill } from '../store/parser.js';
 import { validateSkill } from './validator.js';
 import { guardContent } from './content-guard.js';
+import { sanitizeSkillName } from '../security/path-guard.js';
 
 export class StagingArea {
   constructor(stagingDir, skillsDir) {
@@ -17,6 +18,8 @@ export class StagingArea {
   }
 
   stage(skillName, content) {
+    const safeName = sanitizeSkillName(skillName);
+    skillName = safeName;
     const guard = guardContent(content);
     if (!guard.safe) {
       return { staged: false, issues: guard.issues };
@@ -54,16 +57,18 @@ export class StagingArea {
   }
 
   getStagedContent(skillName) {
-    const path = join(this.stagingDir, skillName, 'SKILL.md');
+    const safeName = sanitizeSkillName(skillName);
+    const path = join(this.stagingDir, safeName, 'SKILL.md');
     if (!existsSync(path)) return null;
     return readFileSync(path, 'utf8');
   }
 
   getLiveDiff(skillName) {
-    const staged = this.getStagedContent(skillName);
+    const safeName = sanitizeSkillName(skillName);
+    const staged = this.getStagedContent(safeName);
     if (!staged) return null;
 
-    const livePath = join(this.skillsDir, skillName, 'SKILL.md');
+    const livePath = join(this.skillsDir, safeName, 'SKILL.md');
     const live = existsSync(livePath) ? readFileSync(livePath, 'utf8') : null;
 
     return {
@@ -75,6 +80,8 @@ export class StagingArea {
   }
 
   promoteToLive(skillName) {
+    const safeName = sanitizeSkillName(skillName);
+    skillName = safeName;
     const staged = this.getStagedContent(skillName);
     if (!staged) throw new Error(`No staged content for "${skillName}"`);
 

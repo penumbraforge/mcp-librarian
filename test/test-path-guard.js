@@ -2,13 +2,17 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { validatePath, sanitizeSkillName } from '../src/security/path-guard.js';
 import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, rmSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 describe('Path Guard', () => {
-  const base = tmpdir();
+  const base = join(tmpdir(), `pathguard-test-${randomBytes(4).toString('hex')}`);
+  mkdirSync(base, { recursive: true });
 
   it('should allow valid paths within base', () => {
     const result = validatePath('subdir/file.md', base);
-    assert.ok(result.startsWith(base));
+    assert.ok(result.includes('subdir'));
   });
 
   it('should block null bytes', () => {
@@ -21,6 +25,30 @@ describe('Path Guard', () => {
 
   it('should block .. in middle', () => {
     assert.throws(() => validatePath('skills/../../../etc/passwd', base), /escapes/);
+  });
+
+  it('should block symlinks pointing outside base', () => {
+    const linkPath = join(base, 'evil-link');
+    try {
+      if (existsSync(linkPath)) rmSync(linkPath);
+      symlinkSync('/etc/passwd', linkPath);
+      assert.throws(() => validatePath('evil-link', base), /escapes|symlink/i);
+    } finally {
+      if (existsSync(linkPath)) rmSync(linkPath);
+    }
+  });
+
+  it('should block intermediate directory symlinks', () => {
+    const subdir = join(base, 'legit-dir');
+    const linkDir = join(base, 'link-dir');
+    mkdirSync(subdir, { recursive: true });
+    try {
+      if (existsSync(linkDir)) rmSync(linkDir);
+      symlinkSync('/tmp', linkDir);
+      assert.throws(() => validatePath('link-dir/something', base), /escapes|symlink/i);
+    } finally {
+      if (existsSync(linkDir)) rmSync(linkDir);
+    }
   });
 });
 

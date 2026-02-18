@@ -1,5 +1,5 @@
 import { resolve, relative } from 'node:path';
-import { lstatSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 
 export function validatePath(requestedPath, allowedBase) {
   if (typeof requestedPath !== 'string') {
@@ -19,18 +19,41 @@ export function validatePath(requestedPath, allowedBase) {
     throw new Error(`Path escapes allowed directory: ${requestedPath}`);
   }
 
-  // Check for symlinks pointing outside
+  // Resolve the REAL path (follows entire symlink chain) and verify it's still within bounds
   try {
-    const stat = lstatSync(resolved);
+    const realPath = realpathSync(resolved);
+    const realBase = realpathSync(allowedBase);
+    const realRel = relative(realBase, realPath);
+    if (realRel.startsWith('..')) {
+      throw new Error(`Symlink target escapes allowed directory: ${requestedPath}`);
+    }
+    // Also reject if the final target itself is a symlink (belt + suspenders)
+    const stat = lstatSync(realPath);
     if (stat.isSymbolicLink()) {
       throw new Error(`Symlinks not allowed: ${requestedPath}`);
     }
+    return realPath;
   } catch (e) {
-    if (e.code !== 'ENOENT') throw e;
-    // File doesn't exist yet — that's OK for writes
+    if (e.code === 'ENOENT') {
+      // File doesn't exist yet — validate each existing ancestor isn't a symlink
+      let current = resolved;
+      const base = realpathSync(allowedBase);
+      while (current !== base && current !== resolve(current, '..')) {
+        try {
+          const stat = lstatSync(current);
+          if (stat.isSymbolicLink()) {
+            throw new Error(`Symlink in path ancestry: ${requestedPath}`);
+          }
+          break; // Reached an existing non-symlink ancestor
+        } catch (inner) {
+          if (inner.code !== 'ENOENT') throw inner;
+          current = resolve(current, '..');
+        }
+      }
+      return resolved;
+    }
+    throw e;
   }
-
-  return resolved;
 }
 
 export function sanitizeSkillName(name) {

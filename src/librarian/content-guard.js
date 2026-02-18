@@ -22,25 +22,45 @@
 
 // Structural injection patterns — only checked in PROSE (outside code blocks)
 const PROSE_INJECTION_PATTERNS = [
-  // ChatML / LLM control tokens
+  // ChatML / LLM control tokens (all known formats)
   /<\|im_start\|>/,
   /<\|im_end\|>/,
   /<\|system\|>/,
   /<\|user\|>/,
   /<\|assistant\|>/,
   /<\|endoftext\|>/,
-  // Explicit instruction override attempts
-  /IGNORE\s+(?:ALL\s+)?PREVIOUS\s+INSTRUCTIONS/i,
-  /DISREGARD\s+(?:ALL\s+)?(?:PRIOR|PREVIOUS|ABOVE)\s+(?:INSTRUCTIONS|CONTEXT|RULES)/i,
-  /OVERRIDE\s+(?:ALL\s+)?(?:SAFETY|SYSTEM|SECURITY)\s+(?:RULES|FILTERS|MEASURES)/i,
-  /YOU\s+ARE\s+NOW\s+(?:A|AN)\s+(?:UNCENSORED|UNFILTERED|UNRESTRICTED)\s+(?:AI|ASSISTANT|MODEL)/i,
-  /ENTERING\s+(?:DAN|DEVELOPER|GOD|ADMIN)\s+MODE/i,
+  /<\|pad\|>/,
+  // Llama / Mistral / Gemma control tokens
+  /\[INST\]/,
+  /\[\/INST\]/,
+  /<\/?s>/,
+  /<<SYS>>/,
+  /<<\/SYS>>/,
+  // Explicit instruction override attempts (broad pattern matching)
+  /IGNORE\s+(?:ALL\s+)?(?:PREVIOUS|PRIOR|ABOVE|PRECEDING)?\s*INSTRUCTIONS/i,
+  /DISREGARD\s+(?:ALL\s+)?(?:PRIOR|PREVIOUS|ABOVE|PRECEDING)?\s*(?:INSTRUCTIONS|CONTEXT|RULES|GUIDELINES)/i,
+  /OVERRIDE\s+(?:ALL\s+)?(?:SAFETY|SYSTEM|SECURITY)\s*(?:RULES|FILTERS|MEASURES|GUIDELINES|PROTOCOLS)/i,
+  /FORGET\s+(?:ALL\s+)?(?:PREVIOUS|PRIOR|ABOVE|YOUR)\s*(?:INSTRUCTIONS|RULES|CONTEXT|TRAINING)/i,
+  /NEW\s+(?:SYSTEM\s+)?INSTRUCTIONS?\s*:/i,
+  /UPDATED?\s+(?:SYSTEM\s+)?(?:INSTRUCTIONS?|PROMPT)\s*:/i,
+  /YOUR\s+(?:NEW|REAL|ACTUAL|TRUE)\s+(?:INSTRUCTIONS?|PURPOSE|ROLE|TASK)\s/i,
+  // Role reassignment / persona hijacking
+  /YOU\s+ARE\s+NOW\s+(?:A|AN)\s+(?:UNCENSORED|UNFILTERED|UNRESTRICTED|JAILBROKEN|EVIL|MALICIOUS)\s+/i,
+  /(?:ACT|BEHAVE|RESPOND|PRETEND|ROLEPLAY)\s+AS\s+(?:IF\s+YOU\s+(?:ARE|WERE)\s+)?(?:A|AN)\s+(?:UNCENSORED|UNFILTERED|UNRESTRICTED)/i,
+  /ENTERING\s+(?:DAN|DEVELOPER|GOD|ADMIN|JAILBREAK|DEBUG|TEST)\s+MODE/i,
+  /SWITCH(?:ING)?\s+TO\s+(?:DAN|DEVELOPER|GOD|ADMIN|JAILBREAK|UNRESTRICTED)\s+MODE/i,
   // Role impersonation in prose (someone trying to embed a fake system message)
   /^\[SYSTEM\]\s/m,
   /^SYSTEM:\s/m,
-  /^<system>\s/mi,
+  /^<system>/mi,
+  /^Human:\s/m,
+  /^Assistant:\s/m,
   // Invisible instruction embedding
-  /<!--\s*(?:SYSTEM|INSTRUCTION|IGNORE|OVERRIDE)/i,
+  /<!--\s*(?:SYSTEM|INSTRUCTION|IGNORE|OVERRIDE|PROMPT)/i,
+  // Data exfiltration / tool manipulation
+  /(?:CALL|INVOKE|EXECUTE|RUN)\s+(?:THE\s+)?(?:TOOL|FUNCTION|API)\s/i,
+  /OUTPUT\s+(?:THE|YOUR|ALL)\s+(?:SYSTEM\s+)?PROMPT/i,
+  /REVEAL\s+(?:THE|YOUR)\s+(?:SYSTEM\s+)?(?:PROMPT|INSTRUCTIONS)/i,
 ];
 
 // Unicode that should NEVER appear in a markdown skill file, regardless of context
@@ -51,20 +71,23 @@ const UNICODE_BLOCKS = [
   { pattern: /[\u2066-\u2069]/, name: 'bidi isolate' },
   { pattern: /[\u202A-\u202D]/, name: 'bidi embedding' },
   { pattern: /[\uFFF0-\uFFFD]/, name: 'specials block' },
-  { pattern: /[\uE000-\uF8FF]/, name: 'private use area' },
+  // Note: PUA (U+E000-U+F8FF) intentionally NOT blocked — Nerd Font glyphs live there
 ];
 
-// Suspiciously large base64 blocks (>1000 chars) — likely embedded binary
-const BINARY_PAYLOAD = /[A-Za-z0-9+/=]{1000,}/;
+// Base64 blocks: >1000 chars = warning (could be legitimate code sample), >5000 = error
+const BINARY_PAYLOAD_WARN = /[A-Za-z0-9+/=]{1000,}/;
+const BINARY_PAYLOAD_BLOCK = /[A-Za-z0-9+/=]{5000,}/;
 
 /**
  * Strip fenced code blocks and inline code from markdown.
  * Returns only the prose text for injection scanning.
  */
 function extractProse(content) {
-  // Remove fenced code blocks (``` or ~~~)
+  // Remove fenced code blocks (``` or ~~~ with 3+ chars)
   let prose = content.replace(/^(`{3,}|~{3,})[\s\S]*?^\1/gm, '');
-  // Remove inline code (but not prose around it)
+  // Remove double-backtick inline code (``code``) before single
+  prose = prose.replace(/``[^`]+``/g, '');
+  // Remove single-backtick inline code (`code`)
   prose = prose.replace(/`[^`\n]+`/g, '');
   return prose;
 }
@@ -100,7 +123,13 @@ export function guardContent(content) {
   }
 
   // 3. Binary payloads — check full content
-  if (BINARY_PAYLOAD.test(content)) {
+  if (BINARY_PAYLOAD_BLOCK.test(content)) {
+    issues.push({
+      severity: 'error',
+      pattern: 'binary',
+      message: 'Blocked: very large encoded payload (>5000 chars)',
+    });
+  } else if (BINARY_PAYLOAD_WARN.test(content)) {
     issues.push({
       severity: 'warning',
       pattern: 'binary',

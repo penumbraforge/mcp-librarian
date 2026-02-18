@@ -5,6 +5,8 @@ import { parseSkill } from '../src/store/parser.js';
 import { LRUCache } from '../src/store/cache.js';
 import { AuditLog } from '../src/security/audit-log.js';
 import { RateLimiter } from '../src/security/rate-limiter.js';
+import { IntegrityEngine } from '../src/librarian/integrity.js';
+import { generateKeypair } from '../src/security/ed25519.js';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -68,12 +70,16 @@ describe('Rate Limiter', () => {
 
 describe('Audit Log', () => {
   const logPath = join(tmpdir(), `test-audit-${randomBytes(4).toString('hex')}.jsonl`);
+  const hmacSecret = 'a'.repeat(32); // Min 32 chars required
+
+  it('should reject short HMAC secret', () => {
+    assert.throws(() => new AuditLog(logPath, 'short'), /min 32 chars/);
+  });
 
   it('should write and verify chain', () => {
-    // Clean up
     if (existsSync(logPath)) rmSync(logPath);
 
-    const log = new AuditLog(logPath, 'test-hmac-secret');
+    const log = new AuditLog(logPath, hmacSecret);
     log.log({ event: 'test1', data: 'hello' });
     log.log({ event: 'test2', data: 'world' });
     log.log({ event: 'test3', data: 'chain' });
@@ -82,14 +88,27 @@ describe('Audit Log', () => {
     assert.ok(result.valid);
     assert.equal(result.lines, 3);
 
-    // Clean up
+    rmSync(logPath);
+  });
+
+  it('should include sequence numbers', () => {
+    if (existsSync(logPath)) rmSync(logPath);
+
+    const log = new AuditLog(logPath, hmacSecret);
+    log.log({ event: 'test1' });
+    log.log({ event: 'test2' });
+
+    const lines = readFileSync(logPath, 'utf8').trim().split('\n');
+    assert.equal(JSON.parse(lines[0])._seq, 0);
+    assert.equal(JSON.parse(lines[1])._seq, 1);
+
     rmSync(logPath);
   });
 
   it('should redact sensitive fields', () => {
     if (existsSync(logPath)) rmSync(logPath);
 
-    const log = new AuditLog(logPath, 'test-hmac-secret');
+    const log = new AuditLog(logPath, hmacSecret);
     log.log({ event: 'auth', secret: 'supersecret', password: '12345' });
 
     const line = readFileSync(logPath, 'utf8').trim();
@@ -99,15 +118,29 @@ describe('Audit Log', () => {
 
     rmSync(logPath);
   });
+
+  it('should handle circular references in redact', () => {
+    if (existsSync(logPath)) rmSync(logPath);
+
+    const log = new AuditLog(logPath, hmacSecret);
+    const circular = { event: 'test' };
+    circular.self = circular;
+    // Should not throw
+    log.log(circular);
+
+    const line = readFileSync(logPath, 'utf8').trim();
+    const entry = JSON.parse(line);
+    assert.equal(entry.self, '[CIRCULAR]');
+
+    rmSync(logPath);
+  });
 });
 
 describe('SkillStore Integration', () => {
   const testDir = join(tmpdir(), `test-skills-${randomBytes(4).toString('hex')}`);
+  const { publicKey, privateKey } = generateKeypair();
 
-  before(() => {
-    // Create test skills
-    mkdirSync(join(testDir, 'test-skill'), { recursive: true });
-    writeFileSync(join(testDir, 'test-skill', 'SKILL.md'), `---
+  const skillContent = `---
 name: test-skill
 description: A test skill for integration tests
 ---
@@ -119,19 +152,26 @@ This section covers the basics of testing.
 ## Advanced
 
 Advanced testing patterns and strategies.
-`);
-    // Write a manifest (unsigned for simplicity)
-    writeFileSync(join(testDir, 'manifest.json'), JSON.stringify({ skills: {} }));
+`;
+
+  before(() => {
+    // Create test skill
+    mkdirSync(join(testDir, 'test-skill'), { recursive: true });
+    writeFileSync(join(testDir, 'test-skill', 'SKILL.md'), skillContent);
+
+    // Sign the skill (required — UNSIGNED skills are now rejected)
+    const engine = new IntegrityEngine(testDir, publicKey, privateKey);
+    engine.signAll({ 'test-skill': skillContent });
   });
 
   it('should load skills from directory', () => {
-    const store = new SkillStore(testDir);
+    const store = new SkillStore(testDir, { publicKey });
     const count = store.loadAll();
     assert.equal(count, 1);
   });
 
   it('should search with BM25', () => {
-    const store = new SkillStore(testDir);
+    const store = new SkillStore(testDir, { publicKey });
     store.loadAll();
     const results = store.search('testing basics');
     assert.ok(results.length > 0);
@@ -139,25 +179,38 @@ Advanced testing patterns and strategies.
   });
 
   it('should list skills with sections', () => {
-    const store = new SkillStore(testDir);
+    const store = new SkillStore(testDir, { publicKey });
     store.loadAll();
     const list = store.listSkills();
     assert.equal(list.length, 1);
     assert.equal(list[0].name, 'test-skill');
     assert.ok(list[0].sections.includes('Basics'));
     assert.ok(list[0].sections.includes('Advanced'));
+    assert.equal(list[0].status, 'VERIFIED');
   });
 
-  it('should get specific section', () => {
-    const store = new SkillStore(testDir);
+  it('should get specific section (signed skill)', () => {
+    const store = new SkillStore(testDir, { publicKey });
     store.loadAll();
     const section = store.getSection('test-skill', 'Basics');
     assert.ok(section);
     assert.ok(section.body.includes('basics of testing'));
   });
 
+  it('should reject unsigned skills', () => {
+    // Create a store with empty manifest (no signatures)
+    const unsignedDir = join(tmpdir(), `test-unsigned-${randomBytes(4).toString('hex')}`);
+    mkdirSync(join(unsignedDir, 'unsigned-skill'), { recursive: true });
+    writeFileSync(join(unsignedDir, 'unsigned-skill', 'SKILL.md'), '---\nname: unsigned\ndescription: test\n---\n\n## Test\n\nContent.');
+    writeFileSync(join(unsignedDir, 'manifest.json'), JSON.stringify({ skills: {} }));
+
+    const store = new SkillStore(unsignedDir);
+    store.loadAll();
+    assert.throws(() => store.getSkill('unsigned-skill'), /unsigned/i);
+  });
+
   it('should return null for missing section', () => {
-    const store = new SkillStore(testDir);
+    const store = new SkillStore(testDir, { publicKey });
     store.loadAll();
     const section = store.getSection('test-skill', 'Nonexistent');
     assert.equal(section, null);

@@ -86,6 +86,9 @@ export class SkillStore {
     if (verification.status === 'TAMPERED') {
       throw new Error(`Skill '${safeName}' integrity check failed: ${verification.reason || 'hash mismatch'}`);
     }
+    if (verification.status === 'UNSIGNED') {
+      throw new Error(`Skill '${safeName}' is unsigned — run install.sh to sign all skills`);
+    }
 
     this.cache.set(`skill:${safeName}`, parsed);
     return parsed;

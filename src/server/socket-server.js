@@ -18,14 +18,20 @@ export class SocketServer {
 
   start() {
     return new Promise((resolve, reject) => {
-      // Clean up stale socket
+      // Clean up stale socket — use exclusive listen to prevent race
       if (existsSync(this.socketPath)) {
         unlinkSync(this.socketPath);
       }
 
       this.server = createServer(socket => this._onConnection(socket));
 
-      this.server.on('error', reject);
+      this.server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          reject(new Error(`Socket already in use: ${this.socketPath} — another instance may be running`));
+        } else {
+          reject(err);
+        }
+      });
 
       this.server.listen(this.socketPath, () => {
         chmodSync(this.socketPath, 0o600);

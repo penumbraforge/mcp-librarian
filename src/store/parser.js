@@ -40,18 +40,23 @@ export function parseSkill(content, skillName) {
   return result;
 }
 
+// Keys that must never be set via YAML parsing (prototype pollution prevention)
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function parseSimpleYaml(text) {
-  const result = {};
+  const result = Object.create(null); // No prototype chain
   for (const line of text.split('\n')) {
     const match = line.match(/^(\w[\w-]*)\s*:\s*(.+)/);
     if (match) {
+      const key = match[1];
+      if (FORBIDDEN_KEYS.has(key)) continue; // Block prototype pollution
       let val = match[2].trim();
       // Strip quotes
       if ((val.startsWith('"') && val.endsWith('"')) ||
           (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
-      result[match[1]] = val;
+      result[key] = val;
     }
   }
   return result;
