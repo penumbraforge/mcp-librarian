@@ -3,7 +3,7 @@ node_modules/
 *.priv
 ed25519.pub
 audit.jsonl
-forge.sock
-.mcp-forge/
+librarian.sock
+.mcp-librarian/
 staging/*.md
 !staging/.gitkeep

@@ -10,7 +10,7 @@ export class SkillStore {
   constructor(skillsDir, opts = {}) {
     this.skillsDir = skillsDir;
     this.publicKey = opts.publicKey || null;
-    this.cache = new LRUCache({ maxSize: 30, ttlMs: opts.cacheTtl ?? 300_000 });
+    this.cache = new LRUCache({ maxSize: opts.cacheMaxSize ?? 100, ttlMs: opts.cacheTtl ?? 600_000 });
     this.bm25 = new BM25();
     this.skills = new Map();     // name → parsed skill
     this.manifest = null;        // manifest.json content
@@ -111,6 +111,7 @@ export class SkillStore {
       result.push({
         name,
         description: parsed.frontmatter.description || '',
+        domain: parsed.frontmatter.domain || 'general',
         sections: extractSectionHeadings(parsed),
         status: this.verifySkill(name).status,
       });

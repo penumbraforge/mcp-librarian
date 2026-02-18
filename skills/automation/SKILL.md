@@ -1,6 +1,8 @@
 ---
 name: automation
 description: "Worker automation, job queues, process management, scheduling, and monitoring. Load for any BullMQ, cron, or infrastructure task."
+domain: automation
+version: "1.0"
 ---
 
 # Automation & Worker Reference Dictionary

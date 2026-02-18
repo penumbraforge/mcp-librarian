@@ -3,22 +3,22 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.mcp-forge.server</string>
+	<string>com.mcp-librarian.server</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/bin/node</string>
-		<string>__MCP_FORGE_DIR__/bin/mcp-forge.js</string>
+		<string>__PROJECT_DIR__/bin/mcp-librarian.js</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
 	<key>StandardOutPath</key>
-	<string>__HOME__/.mcp-forge/server.log</string>
+	<string>__HOME__/.mcp-librarian/server.log</string>
 	<key>StandardErrorPath</key>
-	<string>__HOME__/.mcp-forge/server.err</string>
+	<string>__HOME__/.mcp-librarian/server.err</string>
 	<key>WorkingDirectory</key>
-	<string>__MCP_FORGE_DIR__</string>
+	<string>__PROJECT_DIR__</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>

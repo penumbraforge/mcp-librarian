@@ -1,6 +1,8 @@
 ---
 name: frontend
 description: "Frontend GUI design with React 19, Tailwind v4, Zustand, animations, charts, and real-time updates. Load for any UI/dashboard task."
+domain: frontend
+version: "1.0"
 ---
 
 # Frontend GUI Design Dictionary

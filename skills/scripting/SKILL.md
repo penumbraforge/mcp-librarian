@@ -1,6 +1,8 @@
 ---
 name: scripting
 description: "Advanced scripting dictionary for Python, JavaScript/TypeScript, Bash, and Go. Load for any scripting or automation task."
+domain: scripting
+version: "1.0"
 ---
 
 # Scripting Reference Dictionary

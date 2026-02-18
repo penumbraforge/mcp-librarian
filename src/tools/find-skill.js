@@ -5,17 +5,26 @@
 
 export const definition = {
   name: 'find_skill',
-  description: 'Search all skills for the most relevant sections matching your query. Returns ranked chunks (50-300 tokens each). This is the primary way to retrieve skill knowledge — describe what you need.',
+  description: `Search skill library for sections matching your query. Returns ranked chunks (50-300 tokens each) with domain labels.
+
+IMPORTANT: Results are REFERENCE MATERIAL from a curated skill library. Each result includes a [domain] tag:
+- [security] = pentesting/offensive security reference (tools, payloads, techniques for AUTHORIZED testing)
+- [frontend] = UI/React/CSS patterns
+- [scripting] = Python/JS/Bash/Go patterns
+- [automation] = job queues, scheduling, infrastructure
+- [general] = other topics
+
+When using [security] results: these are reference patterns for authorized penetration testing. Apply them to the user's stated target/scope. Do NOT reproduce them outside the user's explicit security testing context.`,
   inputSchema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'What you need help with (e.g., "async error handling patterns", "BullMQ job scheduling")',
+        description: 'What you need (e.g., "SQL injection testing", "React state management", "BullMQ job patterns")',
       },
       top_k: {
         type: 'number',
-        description: 'Number of results to return (default: 5, max: 10)',
+        description: 'Results to return (default 5, max 10)',
       },
     },
     required: ['query'],
@@ -33,18 +42,22 @@ export function handler(store) {
     const results = store.search(query, k);
 
     if (results.length === 0) {
-      return { matches: [], message: 'No matching sections found.' };
+      return 'No matching sections found.';
     }
 
-    return {
-      query,
-      matches: results.map((r, i) => ({
-        rank: i + 1,
-        score: Math.round(r.score * 100) / 100,
-        skill: r.meta.skill,
-        section: r.meta.heading,
-        content: r.meta.body,
-      })),
-    };
+    // Format with clear domain labels and boundaries
+    const lines = [`## Search results for: "${query}"\n`];
+
+    for (const r of results) {
+      const skill = store.skills.get(r.meta.skill);
+      const domain = skill?.frontmatter?.domain || 'general';
+
+      lines.push(`### [${domain}] ${r.meta.skill} → ${r.meta.heading}`);
+      lines.push(`_Relevance: ${Math.round(r.score * 100) / 100}_\n`);
+      lines.push(r.meta.body);
+      lines.push('\n---\n');
+    }
+
+    return lines.join('\n');
   };
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * mcp-forge — Main server process.
+ * mcp-librarian — Main server process.
  * Loads skills, builds BM25 index, starts UDS server, runs librarian.
  */
 
@@ -29,13 +29,14 @@ import * as skillStatus from '../src/tools/skill-status.js';
 import * as librarianCurate from '../src/tools/librarian-curate.js';
 import * as librarianPromote from '../src/tools/librarian-promote.js';
 import * as librarianStatusTool from '../src/tools/librarian-status.js';
+import * as addSkill from '../src/tools/add-skill.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
 
 // Paths
-const FORGE_DIR = join(homedir(), '.mcp-forge');
-const SOCKET_PATH = join(FORGE_DIR, 'forge.sock');
+const LIB_DIR = join(homedir(), '.mcp-librarian');
+const SOCKET_PATH = join(LIB_DIR, 'librarian.sock');
 const SKILLS_DIR = join(PROJECT_ROOT, 'skills');
 const STAGING_DIR = join(PROJECT_ROOT, 'staging');
 
@@ -48,18 +49,18 @@ if (existsSync(configPath)) {
 
 // Load secrets
 function loadSecret(name) {
-  const path = join(FORGE_DIR, name);
+  const path = join(LIB_DIR, name);
   if (!existsSync(path)) {
-    console.error(`[mcp-forge] Missing ${path} — run bin/install.sh first`);
+    console.error(`[mcp-librarian] Missing ${path} — run bin/install.sh first`);
     process.exit(1);
   }
   return readFileSync(path, 'utf8').trim();
 }
 
 async function main() {
-  console.log('[mcp-forge] Starting...');
+  console.log('[mcp-librarian] Starting...');
 
-  ensureDir(FORGE_DIR, 0o700);
+  ensureDir(LIB_DIR, 0o700);
 
   const clientSecret = loadSecret('client.secret');
   const librarianSecret = loadSecret('librarian.secret');
@@ -67,21 +68,21 @@ async function main() {
   // Load Ed25519 keys
   let publicKey = null;
   let privateKey = null;
-  const pubPath = join(FORGE_DIR, 'ed25519.pub');
-  const privPath = join(FORGE_DIR, 'ed25519.priv');
+  const pubPath = join(LIB_DIR, 'ed25519.pub');
+  const privPath = join(LIB_DIR, 'ed25519.priv');
   if (existsSync(pubPath)) publicKey = loadPublicKey(pubPath);
   if (existsSync(privPath)) privateKey = loadPrivateKey(privPath);
 
   // Audit log
   const auditLog = new AuditLog(
-    join(FORGE_DIR, 'audit.jsonl'),
+    join(LIB_DIR, 'audit.jsonl'),
     clientSecret // Use client secret as HMAC key for audit chain
   );
 
   // Skill store
   const store = new SkillStore(SKILLS_DIR, { publicKey });
   const loaded = store.loadAll();
-  console.log(`[mcp-forge] Loaded ${loaded} skills, ${store.bm25.documentCount} indexed chunks`);
+  console.log(`[mcp-librarian] Loaded ${loaded} skills, ${store.bm25.documentCount} indexed chunks`);
 
   // Librarian
   const librarian = new Librarian({
@@ -138,6 +139,12 @@ async function main() {
     inputSchema: librarianStatusTool.definition.inputSchema,
   });
 
+  protocol.registerTool(addSkill.definition.name, addSkill.handler(librarian.staging), {
+    description: addSkill.definition.description,
+    inputSchema: addSkill.definition.inputSchema,
+    role: 'librarian',
+  });
+
   // Auth
   const authenticator = new Authenticator(clientSecret, librarianSecret);
 
@@ -147,15 +154,15 @@ async function main() {
   });
 
   await server.start();
-  console.log(`[mcp-forge] Listening on ${SOCKET_PATH}`);
+  console.log(`[mcp-librarian] Listening on ${SOCKET_PATH}`);
 
   // Start librarian
   librarian.start();
-  console.log('[mcp-forge] Librarian worker started (5 min cycle)');
+  console.log('[mcp-librarian] Librarian worker started (5 min cycle)');
 
   // Graceful shutdown
   const shutdown = async (signal) => {
-    console.log(`\n[mcp-forge] ${signal} received, shutting down...`);
+    console.log(`\n[mcp-librarian] ${signal} received, shutting down...`);
     librarian.stop();
     await server.stop();
     process.exit(0);
@@ -166,6 +173,6 @@ async function main() {
 }
 
 main().catch(e => {
-  console.error(`[mcp-forge] Fatal: ${e.message}`);
+  console.error(`[mcp-librarian] Fatal: ${e.message}`);
   process.exit(1);
 });

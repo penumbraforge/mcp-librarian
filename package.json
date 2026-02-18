@@ -1,21 +1,21 @@
 {
-  "name": "mcp-forge",
-  "version": "1.0.0",
-  "description": "Hyper-secure intelligent MCP skills server with BM25 search and progressive disclosure",
+  "name": "mcp-librarian",
+  "version": "2.0.0",
+  "description": "Intelligent MCP skills server — BM25 search, progressive disclosure, Ed25519 integrity",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
   },
   "bin": {
-    "mcp-forge": "./bin/mcp-forge.js",
-    "mcp-forge-stdio": "./bin/mcp-forge-stdio.js"
+    "mcp-librarian": "./bin/mcp-librarian.js",
+    "mcp-librarian-stdio": "./bin/mcp-librarian-stdio.js"
   },
   "scripts": {
-    "start": "node bin/mcp-forge.js",
+    "start": "node bin/mcp-librarian.js",
     "test": "node --test test/test-*.js",
-    "install-forge": "bash bin/install.sh"
+    "install": "bash bin/install.sh"
   },
-  "keywords": ["mcp", "skills", "security", "bm25"],
+  "keywords": ["mcp", "skills", "librarian", "bm25", "security"],
   "license": "MIT",
   "dependencies": {}
 }

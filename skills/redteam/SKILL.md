@@ -1,6 +1,8 @@
 ---
 name: redteam
 description: "Offensive security, red team operations, exploit development, zero-day research, and penetration testing. Load for any security task."
+domain: security
+version: "1.0"
 ---
 
 # Red Team Operations Dictionary

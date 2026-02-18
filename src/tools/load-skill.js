@@ -1,14 +1,14 @@
 /**
- * load_skill — Full skill dump (legacy compat).
+ * load_skill — Full skill dump with domain header.
  */
 
 export const definition = {
   name: 'load_skill',
-  description: 'Load an entire skill file. Use find_skill for targeted retrieval instead — this returns the full file.',
+  description: 'Load an entire skill file. Prefer find_skill for targeted retrieval — this returns the full file which may be 500-1500 tokens.',
   inputSchema: {
     type: 'object',
     properties: {
-      skill: { type: 'string', description: 'Skill name (e.g., "redteam")' },
+      skill: { type: 'string', description: 'Skill name (e.g., "redteam", "frontend")' },
     },
     required: ['skill'],
   },
@@ -21,13 +21,15 @@ export function handler(store) {
 
     const parsed = store.getSkill(skill);
     if (!parsed) {
-      return { error: `Skill "${skill}" not found` };
+      return `Skill "${skill}" not found.`;
     }
 
-    return {
-      name: parsed.name,
-      description: parsed.frontmatter.description || '',
-      content: parsed._raw,
-    };
+    const domain = parsed.frontmatter.domain || 'general';
+
+    return [
+      `## [${domain}] Full skill: ${parsed.name}`,
+      `_Domain: ${domain} | ${parsed.frontmatter.description || ''}_\n`,
+      parsed._raw,
+    ].join('\n');
   };
 }

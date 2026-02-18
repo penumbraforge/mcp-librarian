@@ -23,7 +23,7 @@ export class Protocol {
     if (method === 'initialize') {
       return this._respond(id, {
         protocolVersion: MCP_VERSION,
-        serverInfo: { name: 'mcp-forge', version: '1.0.0' },
+        serverInfo: { name: 'mcp-librarian', version: '1.0.0' },
         capabilities: { tools: {} },
       });
     }

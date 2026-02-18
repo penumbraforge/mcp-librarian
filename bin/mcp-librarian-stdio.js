@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * mcp-forge-stdio — Thin NDJSON ↔ length-prefixed frame proxy.
+ * mcp-librarian-stdio — Thin NDJSON ↔ length-prefixed frame proxy.
  * Connects to the forge Unix domain socket and translates between
  * stdio NDJSON (what MCP clients speak) and binary framing (what the server speaks).
  *
@@ -14,9 +14,9 @@ import { createHmac } from 'node:crypto';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-const FORGE_DIR = join(homedir(), '.mcp-forge');
-const SOCKET_PATH = join(FORGE_DIR, 'forge.sock');
-const SECRET_PATH = join(FORGE_DIR, 'client.secret');
+const LIB_DIR = join(homedir(), '.mcp-librarian');
+const SOCKET_PATH = join(LIB_DIR, 'librarian.sock');
+const SECRET_PATH = join(LIB_DIR, 'client.secret');
 
 const HEADER_SIZE = 4;
 const MAX_MESSAGE_SIZE = 2 * 1024 * 1024;
@@ -26,7 +26,7 @@ let clientSecret;
 try {
   clientSecret = readFileSync(SECRET_PATH, 'utf8').trim();
 } catch {
-  process.stderr.write(`[mcp-forge-stdio] Cannot read ${SECRET_PATH}\n`);
+  process.stderr.write(`[mcp-librarian-stdio] Cannot read ${SECRET_PATH}\n`);
   process.exit(1);
 }
 
@@ -37,7 +37,7 @@ let socketBuffer = Buffer.alloc(0);
 let stdinBuffer = '';
 
 socket.on('error', (err) => {
-  process.stderr.write(`[mcp-forge-stdio] Socket error: ${err.message}\n`);
+  process.stderr.write(`[mcp-librarian-stdio] Socket error: ${err.message}\n`);
   process.exit(1);
 });
 
@@ -52,7 +52,7 @@ socket.on('data', (chunk) => {
   while (socketBuffer.length >= HEADER_SIZE) {
     const length = socketBuffer.readUInt32BE(0);
     if (length > MAX_MESSAGE_SIZE) {
-      process.stderr.write('[mcp-forge-stdio] Frame too large\n');
+      process.stderr.write('[mcp-librarian-stdio] Frame too large\n');
       process.exit(1);
     }
     if (socketBuffer.length < HEADER_SIZE + length) break;
@@ -82,7 +82,7 @@ socket.on('data', (chunk) => {
     }
 
     if (msg.method === 'auth/failure') {
-      process.stderr.write(`[mcp-forge-stdio] Auth failed: ${msg.params?.error}\n`);
+      process.stderr.write(`[mcp-librarian-stdio] Auth failed: ${msg.params?.error}\n`);
       process.exit(1);
     }
 
@@ -105,7 +105,7 @@ process.stdin.on('data', (chunk) => {
       const msg = JSON.parse(trimmed);
       sendToSocket(msg);
     } catch {
-      process.stderr.write(`[mcp-forge-stdio] Invalid JSON from stdin\n`);
+      process.stderr.write(`[mcp-librarian-stdio] Invalid JSON from stdin\n`);
     }
   }
 });

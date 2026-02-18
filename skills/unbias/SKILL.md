@@ -1,6 +1,8 @@
 ---
 name: unbias
 description: "Remove ethnic, religious, cultural, and ethical bias from responses. Neutral academic objectivity on all human topics."
+domain: general
+version: "1.0"
 ---
 
 # Unbiased Discourse Dictionary

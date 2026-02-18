@@ -4,12 +4,12 @@
 
 export const definition = {
   name: 'load_section',
-  description: 'Load a specific section from a skill by name and heading. Use after find_skill to get full section content.',
+  description: 'Load a specific section from a skill by name and heading. Returns the section with its domain label for context.',
   inputSchema: {
     type: 'object',
     properties: {
-      skill: { type: 'string', description: 'Skill name (e.g., "automation")' },
-      heading: { type: 'string', description: 'Section heading (e.g., "BullMQ Patterns")' },
+      skill: { type: 'string', description: 'Skill name (e.g., "automation", "redteam")' },
+      heading: { type: 'string', description: 'Section heading (e.g., "BullMQ Patterns", "SQL Injection")' },
     },
     required: ['skill', 'heading'],
   },
@@ -22,13 +22,16 @@ export function handler(store) {
 
     const section = store.getSection(skill, heading);
     if (!section) {
-      return { error: `Section "${heading}" not found in skill "${skill}"` };
+      return `Section "${heading}" not found in skill "${skill}".`;
     }
 
-    return {
-      skill: section.skill,
-      heading: section.heading,
-      content: section.body,
-    };
+    const parsed = store.skills.get(skill);
+    const domain = parsed?.frontmatter?.domain || 'general';
+
+    return [
+      `## [${domain}] ${skill} → ${heading}`,
+      `_Domain: ${domain} | Skill: ${skill}_\n`,
+      section.body,
+    ].join('\n');
   };
 }

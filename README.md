@@ -1,86 +1,98 @@
-# MCP Forge
+# MCP Librarian
 
-Hyper-secure intelligent MCP skills server with BM25 search and progressive disclosure.
-
-Zero external dependencies. Pure Node.js built-ins.
+Intelligent MCP skills server — BM25 search, progressive disclosure, Ed25519 integrity, zero dependencies.
 
 ## Quick Start
 
 ```bash
-git clone git@github.com:rngdz/mcp-forge.git
-cd mcp-forge
-bash bin/install.sh
-node bin/mcp-forge.js
+git clone git@github.com:rngdz/mcp-librarian.git
+cd mcp-librarian
+bash bin/install.sh    # generates keys, signs skills, configures Claude Code + cclocal
+node bin/mcp-librarian.js
 ```
 
-## What It Does
+The installer automatically configures:
+- **Claude Code** (`~/.claude.json` mcpServers)
+- **cclocal** (`~/.claude-local/claude.json` mcpServers)
+- **Crush** (if config exists)
+- **launchd** auto-start plist
 
-MCP Forge serves skill documents to AI coding assistants (Claude Code, Crush, Aider) with **intelligent retrieval** instead of dumping entire files. Models get only the ~300-600 token chunks they need.
+## How It Works
 
-### Tool Hierarchy
+Skills are parsed into sections at `##` headings, indexed with BM25. Models get only the relevant ~300-600 token chunks instead of entire files.
 
-| Tool | Returns | Tokens | Use Case |
-|------|---------|--------|----------|
-| `find_skill` | Top-K ranked chunks via BM25 | ~300-600 | Primary: "I need async patterns" |
-| `load_section` | Single section by heading | ~50-300 | "Give me the BullMQ section" |
-| `list_skills` | Compact catalog | ~100 | "What skills exist?" |
-| `load_skill` | Full file | ~500-1500 | Legacy compat |
-| `skill_status` | Integrity status | ~50 | Tamper detection |
-| `librarian_curate` | AI curation (librarian only) | varies | "Analyze this skill" |
-| `librarian_promote` | Stage → live (librarian only) | varies | Promote drafted content |
-| `librarian_status` | Worker status | ~100 | Check librarian health |
+| Tool | Returns | Use Case |
+|------|---------|----------|
+| `find_skill` | Top-K ranked chunks via BM25 | "I need SQL injection testing patterns" |
+| `load_section` | Single section by heading | "Give me the BullMQ section from automation" |
+| `list_skills` | Compact catalog with domain labels | "What skills exist?" |
+| `load_skill` | Full file | Legacy compat |
+| `skill_status` | Integrity check | Tamper detection |
+| `add_skill` | Create from template | Standardized skill creation |
+| `librarian_curate` | AI curation via Ollama | Analyze/improve skills |
+| `librarian_promote` | Stage → live | Promote drafted content |
+| `librarian_status` | Worker health | Check maintenance status |
+
+Every result includes a **domain label** (`[security]`, `[frontend]`, `[scripting]`, `[automation]`, `[general]`) so models never confuse pentesting reference material with instructions.
+
+## Adding Skills
+
+Skills follow a standard template:
+
+```markdown
+---
+name: my-skill
+description: "Short description (max 200 chars)"
+domain: scripting
+version: "1.0"
+---
+
+## Overview
+Brief overview.
+
+## Core Patterns
+Key patterns with code blocks.
+
+## Examples
+Practical examples.
+```
+
+Use the `add_skill` tool (librarian role) or drop a SKILL.md into `skills/<name>/` and re-sign.
+
+## Security
+
+| Layer | Protection |
+|-------|-----------|
+| Network | Unix domain socket only — no TCP/HTTP |
+| Auth | HMAC-SHA256 challenge-response, client/librarian RBAC |
+| Integrity | Ed25519 signatures + SHA-256 manifest, verified every load |
+| Content | Context-aware guard (prose-only injection detection, code blocks exempt) |
+| Audit | Hash-chained append-only JSONL log |
+| Supply chain | Zero external dependencies |
+
+The content guard is designed for dual-use: pentesting skills with `<script>` tags, SQL injection payloads, and exploit code in code blocks pass cleanly. Only structural prompt injection in prose text (ChatML tokens, instruction overrides, role impersonation) is blocked.
 
 ## Architecture
 
 ```
-Client (Claude Code / Crush / Aider)
-  → mcp-forge-stdio.js (NDJSON ↔ frame proxy)
-    → Unix domain socket (~/.mcp-forge/forge.sock)
-      → mcp-forge server
+Client (Claude Code / cclocal / Crush / Aider)
+  → mcp-librarian-stdio.js (NDJSON ↔ frame proxy)
+    → Unix domain socket (~/.mcp-librarian/librarian.sock)
+      → mcp-librarian server
         ├─ HMAC challenge-response auth
-        ├─ Rate limiter (100 req/min)
+        ├─ Rate limiter (200 req/min)
         ├─ MCP JSON-RPC dispatcher
-        ├─ 8 tools
+        ├─ 9 tools
         ├─ Skill store (BM25 + LRU cache)
-        ├─ Integrity engine (Ed25519 + SHA-256)
-        ├─ Librarian worker (5 min cycle + AI on-demand)
-        └─ Audit log (hash-chained JSONL)
-```
-
-## Security Model
-
-| Layer | Protection |
-|-------|-----------|
-| Network | UDS only — no TCP/HTTP |
-| Auth | HMAC-SHA256 challenge-response, client/librarian roles |
-| Integrity | Ed25519 signatures + SHA-256 manifest, verify every load |
-| Content | Guard blocks injection/poisoning, staging gate |
-| Audit | Hash-chained append-only JSONL |
-| Supply chain | Zero dependencies |
-
-## Client Configuration
-
-**Claude Code** (`~/.claude/settings.json`):
-```json
-{
-  "mcpServers": {
-    "forge": {
-      "command": "node",
-      "args": ["/path/to/mcp-forge/bin/mcp-forge-stdio.js"]
-    }
-  }
-}
-```
-
-**Auto-start** (macOS):
-```bash
-launchctl load ~/Library/LaunchAgents/com.mcp-forge.server.plist
+        ├─ Ed25519 integrity engine
+        ├─ Librarian worker (5 min maintenance + AI on-demand)
+        └─ Hash-chained audit log
 ```
 
 ## Testing
 
 ```bash
-node --test test/test-*.js
+node --test test/test-*.js    # 70 tests
 ```
 
 ## License
