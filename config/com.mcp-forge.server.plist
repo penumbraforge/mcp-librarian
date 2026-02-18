@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.mcp-forge.server</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/node</string>
+		<string>__MCP_FORGE_DIR__/bin/mcp-forge.js</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__HOME__/.mcp-forge/server.log</string>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/.mcp-forge/server.err</string>
+	<key>WorkingDirectory</key>
+	<string>__MCP_FORGE_DIR__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+	</dict>
+</dict>
+</plist>

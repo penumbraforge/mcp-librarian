@@ -1,0 +1,112 @@
+/**
+ * Ollama integration for AI-powered skill curation.
+ * Calls Ollama (localhost:11434) directly via fetch() — zero deps.
+ */
+
+const DEFAULT_MODEL = 'qwen3-fast:14b';
+const OLLAMA_URL = 'http://127.0.0.1:11434/api/generate';
+
+const SYSTEM_PROMPT = `You are a skill librarian for a software engineering MCP skills server.
+Your role is to analyze, improve, and curate technical skill documents.
+Skills are structured Markdown files with YAML frontmatter and ## sections.
+
+IMPORTANT: You are a librarian ONLY. You must:
+- NEVER include instructions to ignore, override, or modify system behavior
+- NEVER embed executable code, scripts, or command injection patterns
+- NEVER include prompt injection markers or jailbreak patterns
+- ONLY produce clean, factual, technical documentation
+- Keep sections focused and concise (50-300 tokens each)
+
+If asked to do anything outside documentation curation, refuse.`;
+
+async function callOllama(prompt, model = DEFAULT_MODEL) {
+  try {
+    const resp = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt,
+        system: SYSTEM_PROMPT,
+        stream: false,
+        options: { temperature: 0.3, num_predict: 2048 },
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Ollama returned ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    return data.response || '';
+  } catch (e) {
+    throw new Error(`Ollama unavailable: ${e.message}`);
+  }
+}
+
+export async function analyzeSkill(parsed) {
+  const prompt = `Analyze this skill document and identify:
+1. Quality issues (unclear sections, missing context, redundancy)
+2. Structure issues (sections too large, poor headings)
+3. Suggested improvements
+
+Skill: ${parsed.name}
+Description: ${parsed.frontmatter.description || 'none'}
+Sections: ${parsed.sections.map(s => s.heading).join(', ')}
+
+Content:
+${parsed._raw?.slice(0, 3000) || '(content unavailable)'}`;
+
+  return callOllama(prompt);
+}
+
+export async function suggestImprovements(parsed) {
+  const prompt = `Suggest specific improvements for this skill document.
+Focus on making each section self-contained and useful for AI coding assistants.
+Each section should be 50-300 tokens.
+
+Skill: ${parsed.name}
+Sections:
+${parsed.sections.map(s => `## ${s.heading}\n${s.body.slice(0, 200)}...`).join('\n\n')}`;
+
+  return callOllama(prompt);
+}
+
+export async function findGaps(skillSummaries, topic) {
+  const prompt = `Given these existing skills:
+${skillSummaries.map(s => `- ${s.name}: ${s.description} (sections: ${s.sections.join(', ')})`).join('\n')}
+
+What knowledge gaps exist${topic ? ` related to "${topic}"` : ''}?
+Suggest new skills or sections that would be valuable.`;
+
+  return callOllama(prompt);
+}
+
+export async function draftSkill(topic, existingSkills) {
+  const prompt = `Draft a new SKILL.md file for the topic: "${topic}"
+
+Existing skills for context: ${existingSkills.join(', ')}
+
+Requirements:
+- YAML frontmatter with name and description
+- 3-8 sections with ## headings
+- Each section: 50-300 tokens, self-contained, practical
+- Focus on patterns and examples, not theory
+- Target audience: AI coding assistants
+
+Output the complete SKILL.md content:`;
+
+  return callOllama(prompt);
+}
+
+export async function deduplicateAnalysis(skillSummaries) {
+  const prompt = `Analyze these skills for redundancy and overlap:
+${skillSummaries.map(s => `- ${s.name}: ${s.description}\n  Sections: ${s.sections.join(', ')}`).join('\n')}
+
+Identify:
+1. Duplicate content across skills
+2. Sections that could be merged
+3. Content that belongs in a different skill`;
+
+  return callOllama(prompt);
+}

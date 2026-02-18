@@ -1,0 +1,13 @@
+{
+  "rateLimit": {
+    "windowMs": 60000,
+    "maxRequests": 100
+  },
+  "librarian": {
+    "maintenanceIntervalMs": 300000,
+    "ollamaModel": "qwen3-fast:14b",
+    "ollamaUrl": "http://127.0.0.1:11434"
+  },
+  "maxConnections": 20,
+  "maxMessageSize": 2097152
+}

@@ -1,0 +1,30 @@
+{
+  "skills": {
+    "automation": {
+      "sha256": "a75ab6d49897d566c7418c34c5eced2c5726b9d7b171d955f8f25def99a20dad",
+      "signature": "0J62as0TZI3CjB62iQXkuTrpkTqRp7V6s3aHoyu4TUIKbgz9T80h2yf8bqW3ldY7LiYskGHVF2Q/7U0vPAmQBQ==",
+      "signedAt": "2026-02-18T22:57:44.772Z"
+    },
+    "frontend": {
+      "sha256": "d72ba3b6632518c71f9858ed0750777ffa35231201e9d00e8816c439acaa4e2d",
+      "signature": "WzAgqXeKrF3WjQy4AwWOGkJ7BVS5Dvo2Flxxd4eHn6E5kcG/GHCOQe6IYlGXTsvY+aX8foV3iVW4m8XB0VKICA==",
+      "signedAt": "2026-02-18T22:57:44.772Z"
+    },
+    "redteam": {
+      "sha256": "6886010df033442eb8f486f9120c41c895aa728d5ddeda9a94755137f3e1f791",
+      "signature": "/zkamQzkJcVPdqgvg48V2fPz6Q8pL++tzXHfbq9PFc38Fj6QXyLC9j/Ivh/Emnj8SL3RISEydtNyQIHBIWtTAQ==",
+      "signedAt": "2026-02-18T22:57:44.772Z"
+    },
+    "scripting": {
+      "sha256": "dcdd031cd72e5065f40c87d4c9ff7c0d349ae1619816d620ba5da7a4f94a486e",
+      "signature": "ta6gs3f3U9uX6TufXIJZqAU/KkOse9QQoytUzmxOEfaqpXp9G57ppV09vN1rcHyqWwqe4YEKFlW3w2NvesZMAw==",
+      "signedAt": "2026-02-18T22:57:44.772Z"
+    },
+    "unbias": {
+      "sha256": "881956904c4001d2bd31b6f08f195cd6a26e37b0bc320f34790d4ca5b6cbf8ea",
+      "signature": "tuLHzuW59BL7TnaMNYfib+yrk5unzvbHqv1LAcBmJGstEo+H0nPIV7iy+KidklxBWg/g+U9S8pqZdut685JaAw==",
+      "signedAt": "2026-02-18T22:57:44.772Z"
+    }
+  },
+  "signedAt": "2026-02-18T22:57:44.770Z"
+}

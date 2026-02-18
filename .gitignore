@@ -1,0 +1,9 @@
+node_modules/
+*.secret
+*.priv
+ed25519.pub
+audit.jsonl
+forge.sock
+.mcp-forge/
+staging/*.md
+!staging/.gitkeep
