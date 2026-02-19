@@ -112,6 +112,13 @@ export function guardContent(content) {
 
   // 2. Structural injection — check PROSE ONLY (outside code blocks)
   const prose = extractProse(content);
+
+  // ReDoS prevention: reject if prose is unreasonably large (normal skills < 100KB prose)
+  if (prose.length > 500_000) {
+    issues.push({ severity: 'error', pattern: 'size', message: 'Prose content too large for scanning' });
+    return { safe: false, issues };
+  }
+
   for (const pattern of PROSE_INJECTION_PATTERNS) {
     if (pattern.test(prose)) {
       issues.push({
