@@ -14,6 +14,13 @@ export class FrameDecoder {
 
   push(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
+
+    // Prevent slowloris: reject if accumulated buffer exceeds max frame + header
+    if (this.buffer.length > MAX_MESSAGE_SIZE + HEADER_SIZE) {
+      this.buffer = Buffer.alloc(0);
+      throw new Error('Buffer overflow: too much pending data');
+    }
+
     const frames = [];
 
     while (this.buffer.length >= HEADER_SIZE) {

@@ -22,6 +22,7 @@ const SECRET_PATH = join(LIB_DIR, 'client.secret');
 
 const HEADER_SIZE = 4;
 const MAX_MESSAGE_SIZE = 2 * 1024 * 1024;
+const MAX_BUFFER_SIZE = MAX_MESSAGE_SIZE + HEADER_SIZE;
 
 // Load client secret
 let clientSecret;
@@ -37,6 +38,7 @@ const socket = connect(SOCKET_PATH);
 let authenticated = false;
 let socketBuffer = Buffer.alloc(0);
 let stdinBuffer = '';
+const pendingMessages = [];
 
 socket.on('error', (err) => {
   process.stderr.write(`[mcp-librarian-stdio] Socket error: ${err.message}\n`);
@@ -50,6 +52,12 @@ socket.on('close', () => {
 // Decode length-prefixed frames from socket
 socket.on('data', (chunk) => {
   socketBuffer = Buffer.concat([socketBuffer, chunk]);
+
+  // Prevent unbounded buffer growth
+  if (socketBuffer.length > MAX_BUFFER_SIZE) {
+    process.stderr.write('[mcp-librarian-stdio] Socket buffer overflow\n');
+    process.exit(1);
+  }
 
   while (socketBuffer.length >= HEADER_SIZE) {
     const length = socketBuffer.readUInt32BE(0);
@@ -79,7 +87,11 @@ socket.on('data', (chunk) => {
 
     if (msg.method === 'auth/success') {
       authenticated = true;
-      // Flush any queued stdin messages
+      // Flush any messages queued before auth completed
+      for (const queued of pendingMessages) {
+        sendToSocket(queued);
+      }
+      pendingMessages.length = 0;
       continue;
     }
 
@@ -97,6 +109,13 @@ socket.on('data', (chunk) => {
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   stdinBuffer += chunk;
+
+  // Prevent unbounded stdin buffer growth
+  if (stdinBuffer.length > MAX_MESSAGE_SIZE) {
+    process.stderr.write('[mcp-librarian-stdio] stdin buffer overflow\n');
+    process.exit(1);
+  }
+
   const lines = stdinBuffer.split('\n');
   stdinBuffer = lines.pop(); // Keep incomplete line
 
@@ -105,7 +124,11 @@ process.stdin.on('data', (chunk) => {
     if (!trimmed) continue;
     try {
       const msg = JSON.parse(trimmed);
-      sendToSocket(msg);
+      if (!authenticated) {
+        pendingMessages.push(msg);
+      } else {
+        sendToSocket(msg);
+      }
     } catch {
       process.stderr.write(`[mcp-librarian-stdio] Invalid JSON from stdin\n`);
     }

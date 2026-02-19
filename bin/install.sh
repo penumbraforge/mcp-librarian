@@ -53,10 +53,21 @@ if [ ! -f "$LIB_DIR/client.secret" ]; then
     const dir = process.argv[1];
     writeFileSync(join(dir, 'client.secret'), randomBytes(32).toString('hex'), { mode: 0o600 });
     writeFileSync(join(dir, 'librarian.secret'), randomBytes(32).toString('hex'), { mode: 0o600 });
-    console.log('  Client + librarian secrets generated');
+    writeFileSync(join(dir, 'audit.secret'), randomBytes(32).toString('hex'), { mode: 0o600 });
+    console.log('  Client + librarian + audit secrets generated');
   " "$LIB_DIR"
 else
   echo "  Secrets already exist, skipping"
+  # Ensure audit.secret exists (upgrade path from older installs)
+  if [ ! -f "$LIB_DIR/audit.secret" ]; then
+    node --input-type=module -e "
+      import { randomBytes } from 'node:crypto';
+      import { writeFileSync } from 'node:fs';
+      import { join } from 'node:path';
+      writeFileSync(join(process.argv[1], 'audit.secret'), randomBytes(32).toString('hex'), { mode: 0o600 });
+      console.log('  Audit secret generated (upgrade)');
+    " "$LIB_DIR"
+  fi
 fi
 
 # 4. Migrate skills from clawlet

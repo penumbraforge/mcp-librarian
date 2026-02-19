@@ -71,6 +71,7 @@ async function main() {
 
   const clientSecret = loadSecret('client.secret');
   const librarianSecret = loadSecret('librarian.secret');
+  const auditSecret = loadSecret('audit.secret');
 
   // Load Ed25519 keys
   let publicKey = null;
@@ -80,10 +81,10 @@ async function main() {
   if (existsSync(pubPath)) publicKey = loadPublicKey(pubPath);
   if (existsSync(privPath)) privateKey = loadPrivateKey(privPath);
 
-  // Audit log
+  // Audit log (separate secret — never shares key material with auth)
   const auditLog = new AuditLog(
     join(LIB_DIR, 'audit.jsonl'),
-    clientSecret // Use client secret as HMAC key for audit chain
+    auditSecret
   );
 
   // Skill store

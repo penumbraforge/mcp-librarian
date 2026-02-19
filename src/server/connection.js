@@ -1,11 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { FrameDecoder, encodeFrame } from './framing.js';
 
-let nextId = 1;
-
 export class Connection {
   constructor(socket) {
-    this.id = `conn-${nextId++}`;
+    this.id = randomBytes(8).toString('hex');
     this.socket = socket;
     this.decoder = new FrameDecoder();
     this.role = null;           // 'client' | 'librarian' — set after auth

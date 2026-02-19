@@ -33,7 +33,10 @@ export class SocketServer {
         }
       });
 
+      // Set restrictive umask before listen to prevent world-accessible window
+      const oldUmask = process.umask(0o177);
       this.server.listen(this.socketPath, () => {
+        process.umask(oldUmask);
         chmodSync(this.socketPath, 0o600);
         this.auditLog?.log({ event: 'server_start', socket: this.socketPath });
         resolve();
