@@ -13,7 +13,8 @@
   "scripts": {
     "start": "node bin/mcp-librarian.js",
     "test": "node --test test/test-*.js",
-    "install": "bash bin/install.sh"
+    "install": "bash bin/install.sh",
+    "uninstall": "bash bin/uninstall.sh"
   },
   "keywords": ["mcp", "skills", "librarian", "bm25", "security"],
   "author": "Penumbra Forge <hello@penumbraforge.com> (https://penumbraforge.com)",

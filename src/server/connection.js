@@ -14,7 +14,12 @@ export class Connection {
 
   send(obj) {
     if (this.socket.writable) {
-      this.socket.write(encodeFrame(obj));
+      try {
+        this.socket.write(encodeFrame(obj));
+      } catch {
+        // Frame encoding failed (payload too large) — drop silently rather than crash
+        this.socket.destroy();
+      }
     }
   }
 

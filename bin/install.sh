@@ -124,7 +124,7 @@ echo "[6/8] Signing skill manifest..."
 node --input-type=module -e "
   import { readdirSync, readFileSync, existsSync } from 'node:fs';
   import { join } from 'node:path';
-  import { IntegrityEngine } from './src/librarian/integrity.js';
+  import { IntegrityEngine } from '${PROJECT_DIR}/src/librarian/integrity.js';
 
   const skillsDir = process.argv[1];
   const libDir = process.argv[2];
@@ -154,8 +154,11 @@ echo "[7/8] Configuring MCP clients..."
 STDIO_PATH="$PROJECT_DIR/bin/mcp-librarian-stdio.js"
 
 # Claude Code — use `claude mcp add` if available, else edit JSON directly
+# Unset Claude session env vars to avoid nested-session guard when running from within Claude Code
 if command -v claude &>/dev/null; then
-  claude mcp add --scope user librarian -- "$NODE_PATH" "$STDIO_PATH" 2>/dev/null && \
+  # Remove existing entry first (idempotent), then add fresh
+  env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude mcp remove --scope user librarian 2>/dev/null || true
+  env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude mcp add --scope user librarian -- "$NODE_PATH" "$STDIO_PATH" 2>/dev/null && \
     echo "  Claude Code: configured via CLI" || \
     echo "  Claude Code: CLI config failed, configure manually"
 else

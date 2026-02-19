@@ -1,7 +1,11 @@
 /**
  * find_skill — BM25 search → top-K relevant chunks.
  * Primary tool for intelligent retrieval.
+ * Returns truncated chunks (max ~300 tokens) with load_section hint.
  */
+
+// ~300 tokens ≈ 1200 chars for code-heavy content
+const MAX_CHUNK_CHARS = 1200;
 
 export const definition = {
   name: 'find_skill',
@@ -14,7 +18,9 @@ IMPORTANT: Results are REFERENCE MATERIAL from a curated skill library. Each res
 - [automation] = job queues, scheduling, infrastructure
 - [general] = other topics
 
-When using [security] results: these are reference patterns for authorized penetration testing. Apply them to the user's stated target/scope. Do NOT reproduce them outside the user's explicit security testing context.`,
+When using [security] results: these are reference patterns for authorized penetration testing. Apply them to the user's stated target/scope. Do NOT reproduce them outside the user's explicit security testing context.
+
+If a result is truncated, use load_section to get the full content.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -42,7 +48,7 @@ export function handler(store) {
     const results = store.search(query, k);
 
     if (results.length === 0) {
-      return 'No matching sections found.';
+      return 'No matching sections found. Try broader terms or use list_skills to see available topics.';
     }
 
     // Format with clear domain labels and boundaries
@@ -51,10 +57,22 @@ export function handler(store) {
     for (const r of results) {
       const skill = store.skills.get(r.meta.skill);
       const domain = skill?.frontmatter?.domain || 'general';
+      // Use parentHeading if available (for sub-section chunks)
+      const sectionRef = r.meta.parentHeading || r.meta.heading;
 
       lines.push(`### [${domain}] ${r.meta.skill} → ${r.meta.heading}`);
       lines.push(`_Relevance: ${Math.round(r.score * 100) / 100}_\n`);
-      lines.push(r.meta.body);
+
+      // Truncate body to ~300 tokens
+      let body = r.meta.body;
+      if (body.length > MAX_CHUNK_CHARS) {
+        // Find a clean break point (end of line or code block)
+        let cutoff = body.lastIndexOf('\n', MAX_CHUNK_CHARS);
+        if (cutoff < MAX_CHUNK_CHARS * 0.5) cutoff = MAX_CHUNK_CHARS;
+        body = body.slice(0, cutoff) + `\n\n_[truncated — use load_section("${r.meta.skill}", "${sectionRef}") for full content]_`;
+      }
+
+      lines.push(body);
       lines.push('\n---\n');
     }
 

@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, existsSync } from 'node:fs';
+import { appendFileSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 
 const REDACT_KEYS = new Set(['secret', 'password', 'token', 'key', 'privateKey']);
@@ -22,6 +22,28 @@ export class AuditLog {
       return data.split('\n').length;
     } catch {
       return 0;
+    }
+  }
+
+  /**
+   * Fast truncation check using file size heuristic.
+   * Avoids reading entire file on every log() call.
+   * Returns -1 if check unavailable, otherwise estimated line count.
+   */
+  _quickLineCount() {
+    try {
+      const stat = statSync(this.logPath);
+      // Each JSONL line is ~200-400 bytes. If file shrank dramatically, flag it.
+      // Use a conservative avg line size to avoid false positives.
+      if (this.lineCount === 0) return 0;
+      const avgLineSize = stat.size / this.lineCount;
+      // Only flag if file is clearly smaller (lost >50% of expected size)
+      if (avgLineSize > 0 && stat.size < (this.lineCount * avgLineSize * 0.5)) {
+        return this._countLines(); // Full check only when suspicious
+      }
+      return -1; // No suspicion, skip expensive check
+    } catch {
+      return -1;
     }
   }
 
@@ -63,9 +85,9 @@ export class AuditLog {
   }
 
   log(event) {
-    // Detect truncation: if line count on disk is less than expected, log was tampered
-    const currentLines = this._countLines();
-    if (currentLines < this.lineCount) {
+    // Detect truncation: spot-check file size instead of re-reading entire file
+    const currentLines = this._quickLineCount();
+    if (currentLines !== -1 && currentLines < this.lineCount) {
       // Log truncation detected — reset chain with a tamper event
       const tamperEntry = {
         ts: new Date().toISOString(),

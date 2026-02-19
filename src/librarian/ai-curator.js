@@ -3,7 +3,7 @@
  * Calls Ollama (localhost:11434) directly via fetch() — zero deps.
  */
 
-const DEFAULT_MODEL = 'qwen3-fast:14b';
+const DEFAULT_MODEL = 'qwen3:14b';
 const OLLAMA_URL = 'http://127.0.0.1:11434/api/generate';
 
 const SYSTEM_PROMPT = `You are a skill librarian for a software engineering MCP skills server.

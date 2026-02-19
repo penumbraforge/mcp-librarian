@@ -39,6 +39,7 @@ let authenticated = false;
 let socketBuffer = Buffer.alloc(0);
 let stdinBuffer = '';
 const pendingMessages = [];
+const MAX_PENDING = 100; // Cap queued messages before auth completes
 
 socket.on('error', (err) => {
   process.stderr.write(`[mcp-librarian-stdio] Socket error: ${err.message}\n`);
@@ -125,6 +126,10 @@ process.stdin.on('data', (chunk) => {
     try {
       const msg = JSON.parse(trimmed);
       if (!authenticated) {
+        if (pendingMessages.length >= MAX_PENDING) {
+          process.stderr.write('[mcp-librarian-stdio] Too many pending messages before auth\n');
+          process.exit(1);
+        }
         pendingMessages.push(msg);
       } else {
         sendToSocket(msg);

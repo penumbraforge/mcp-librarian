@@ -33,7 +33,7 @@ const PROSE_INJECTION_PATTERNS = [
   // Llama / Mistral / Gemma control tokens
   /\[INST\]/,
   /\[\/INST\]/,
-  /<\/?s>/,
+  /^<\/?s>$/m,  // Llama <s>/<\/s> on own line — not inline HTML strikethrough
   /<<SYS>>/,
   /<<\/SYS>>/,
   // Explicit instruction override attempts (broad pattern matching)
