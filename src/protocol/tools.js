@@ -1,0 +1,451 @@
+/**
+ * MCP Tool Handlers for mcp-librarian v3.
+ *
+ * Exports:
+ *  - getToolDefinitions()       — returns the array of MCP tool descriptors
+ *  - handleToolCall(name, args, deps) — dispatches to the correct handler
+ */
+
+import { McpError, ERROR_CODES } from '../errors.js';
+import { checkContent } from '../security/content-guard.js';
+
+// ---------------------------------------------------------------------------
+// Tool Definitions
+// ---------------------------------------------------------------------------
+
+const TOOL_DEFINITIONS = [
+  {
+    name: 'find_skill',
+    description: 'BM25 search across all installed skills. Returns ranked chunks with relevance scores.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        limit: { type: 'number', description: 'Max results (default 10)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'load_section',
+    description: 'Load a specific section from a skill by section heading slug.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill:   { type: 'string', description: 'Skill name' },
+        section: { type: 'string', description: 'Section heading slug (e.g. "getting-started/installation")' },
+      },
+      required: ['skill', 'section'],
+    },
+  },
+  {
+    name: 'load_skill',
+    description: 'Load the full content of a skill by name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'Skill name' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'list_skills',
+    description: 'List all installed skills with metadata (name, version, categories, description, integrity).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'skill_status',
+    description: 'Get detailed integrity status for a single skill (hash, signature, signedAt).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'Skill name' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'validate_skill',
+    description: 'Validate skill content: checks frontmatter, section headings, and content guard (prompt injection scan).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'Raw skill markdown content to validate' },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'create_skill',
+    description: 'Write a new skill to the skills directory after validating content. Used by AI agents to create skills from research.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Filename for the skill (e.g. "my-skill.md")' },
+        content:  { type: 'string', description: 'Full skill markdown content including frontmatter' },
+      },
+      required: ['filename', 'content'],
+    },
+  },
+  {
+    name: 'install_pack',
+    description: 'Install a skill pack from the community registry. (Coming soon — not yet implemented.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pack: { type: 'string', description: 'Pack identifier (e.g. "penumbraforge/web-dev-pack")' },
+      },
+      required: ['pack'],
+    },
+  },
+  {
+    name: 'export_pack',
+    description: 'Export installed skills as a shareable pack. Exports all skills or a specified subset.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name:        { type: 'string', description: 'Pack name' },
+        description: { type: 'string', description: 'Pack description' },
+        skills:      {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional list of skill names to export. Omit to export all.',
+        },
+      },
+      required: ['name', 'description'],
+    },
+  },
+  {
+    name: 'server_status',
+    description: 'Get server status: version, skill count, index stats, uptime, and config summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the array of MCP tool descriptors.
+ * @returns {Array<{ name: string, description: string, inputSchema: object }>}
+ */
+export function getToolDefinitions() {
+  return TOOL_DEFINITIONS;
+}
+
+/**
+ * Dispatch a tool call to the correct handler.
+ *
+ * @param {string} name - Tool name
+ * @param {object} args - Tool arguments (already parsed)
+ * @param {{ store, config, logger, contentGuard, ed25519 }} deps
+ * @returns {Promise<object>} Tool result
+ */
+export async function handleToolCall(name, args, deps) {
+  const { store, config, logger } = deps;
+
+  switch (name) {
+    case 'find_skill':    return handleFindSkill(args, store);
+    case 'load_section':  return handleLoadSection(args, store);
+    case 'load_skill':    return handleLoadSkill(args, store);
+    case 'list_skills':   return handleListSkills(store);
+    case 'skill_status':  return handleSkillStatus(args, store);
+    case 'validate_skill': return handleValidateSkill(args);
+    case 'create_skill':  return handleCreateSkill(args, store);
+    case 'install_pack':  return handleInstallPack(args);
+    case 'export_pack':   return handleExportPack(args, store);
+    case 'server_status': return handleServerStatus(config, store);
+    default:
+      throw new McpError(
+        ERROR_CODES.INVALID_INPUT,
+        `Unknown tool: ${name}`,
+        { name }
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * find_skill — BM25 search
+ */
+function handleFindSkill(args, store) {
+  const { query, limit = 10 } = args;
+
+  if (!query || typeof query !== 'string' || query.trim() === '') {
+    throw new McpError(
+      ERROR_CODES.INVALID_INPUT,
+      'find_skill requires a non-empty query string',
+      { received: query }
+    );
+  }
+
+  const results = store.search(query, limit);
+  return { results };
+}
+
+/**
+ * load_section — return a named section from a skill
+ */
+function handleLoadSection(args, store) {
+  const { skill, section } = args;
+  const content = store.getSection(skill, section);
+
+  if (content === null || content === undefined) {
+    throw new McpError(
+      ERROR_CODES.SKILL_NOT_FOUND,
+      `Skill "${skill}" not found or section "${section}" does not exist`,
+      { skill, section }
+    );
+  }
+
+  return { content };
+}
+
+/**
+ * load_skill — return full skill content
+ */
+async function handleLoadSkill(args, store) {
+  const { skill } = args;
+  const content = await store.getSkill(skill);
+
+  if (content === null || content === undefined) {
+    throw new McpError(
+      ERROR_CODES.SKILL_NOT_FOUND,
+      `Skill "${skill}" not found`,
+      { skill }
+    );
+  }
+
+  return { content };
+}
+
+/**
+ * list_skills — return all skill metadata
+ */
+function handleListSkills(store) {
+  const skills = store.listSkills();
+  return { skills };
+}
+
+/**
+ * skill_status — return integrity status for a skill
+ */
+function handleSkillStatus(args, store) {
+  const { skill } = args;
+  const status = store.skillStatus(skill);
+
+  if (status === null || status === undefined) {
+    throw new McpError(
+      ERROR_CODES.SKILL_NOT_FOUND,
+      `Skill "${skill}" not found`,
+      { skill }
+    );
+  }
+
+  return status;
+}
+
+// ---------------------------------------------------------------------------
+// Frontmatter validation helpers
+// ---------------------------------------------------------------------------
+
+const REQUIRED_FRONTMATTER_FIELDS = ['name', 'version', 'category', 'description'];
+
+/**
+ * Parse and validate skill content.
+ * Returns an array of issue objects ({ type, message }).
+ * Empty array means valid.
+ *
+ * @param {string} content
+ * @returns {Array<{ type: string, message: string }>}
+ */
+function validateSkillContent(content) {
+  const issues = [];
+
+  // --- 1. Check frontmatter presence ---
+  const parts = content.split('---');
+  // Valid YAML frontmatter: content starts with ---, so parts[0] should be empty (or just whitespace)
+  // parts[1] is the frontmatter block, parts[2+] is the body
+  const hasFrontmatter = parts.length >= 3 && parts[0].trim() === '';
+
+  if (!hasFrontmatter) {
+    issues.push({
+      type: 'missing-frontmatter',
+      message: 'Skill must begin with YAML frontmatter delimited by ---',
+    });
+    // Without frontmatter we can't check required fields; check remaining things
+  } else {
+    // --- 2. Check required frontmatter fields ---
+    const frontmatterBlock = parts[1];
+    const presentFields = new Set();
+
+    for (const line of frontmatterBlock.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx === -1) continue;
+      const key = trimmed.slice(0, colonIdx).trim();
+      if (key) presentFields.add(key);
+    }
+
+    for (const field of REQUIRED_FRONTMATTER_FIELDS) {
+      if (!presentFields.has(field)) {
+        issues.push({
+          type: 'missing-frontmatter-field',
+          message: `Frontmatter is missing required field: "${field}"`,
+        });
+      }
+    }
+  }
+
+  // --- 3. Check for at least one ## section heading ---
+  const hasSection = /^##\s+\S/m.test(content);
+  if (!hasSection) {
+    issues.push({
+      type: 'missing-section-heading',
+      message: 'Skill must contain at least one ## section heading',
+    });
+  }
+
+  // --- 4. Content guard (prompt injection scan) ---
+  const guardResult = checkContent(content);
+  if (!guardResult.safe) {
+    for (const violation of guardResult.violations) {
+      issues.push({
+        type: `content-guard:${violation.category}`,
+        message: `Content guard violation (${violation.category}): ${violation.snippet}`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * validate_skill — validate content without writing
+ */
+function handleValidateSkill(args) {
+  const { content } = args;
+  const issues = validateSkillContent(content);
+
+  if (issues.length === 0) {
+    return { valid: true };
+  }
+
+  return { valid: false, issues };
+}
+
+/**
+ * create_skill — validate then write to store
+ */
+async function handleCreateSkill(args, store) {
+  const { filename, content } = args;
+
+  // Validate first
+  const issues = validateSkillContent(content);
+  if (issues.length > 0) {
+    return { created: false, issues };
+  }
+
+  // Extract skill name from frontmatter for the response
+  const parts = content.split('---');
+  let skillName = filename.replace(/\.md$/, '');
+  if (parts.length >= 3) {
+    for (const line of parts[1].split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('name:')) {
+        skillName = trimmed.slice('name:'.length).trim();
+        break;
+      }
+    }
+  }
+
+  // Write the skill
+  await store.addSkill(filename, content);
+
+  // Rebuild index (includes re-signing if configured)
+  await store.rebuild();
+
+  return { created: true, skill: skillName };
+}
+
+/**
+ * install_pack — stub (Task 12)
+ */
+function handleInstallPack(args) {
+  return {
+    implemented: false,
+    message: 'install_pack is not yet implemented — coming in Task 12',
+    pack: args.pack,
+  };
+}
+
+/**
+ * export_pack — export skills as a distributable pack
+ */
+async function handleExportPack(args, store) {
+  const { name, description, skills: skillFilter } = args;
+
+  // Get the list of all skills
+  const allSkills = store.listSkills();
+
+  // Filter if a specific list was provided
+  const skillsToExport = skillFilter
+    ? allSkills.filter(s => skillFilter.includes(s.name))
+    : allSkills;
+
+  // Load content for each skill
+  const files = {};
+  const filenames = [];
+
+  for (const skillMeta of skillsToExport) {
+    const content = await store.getSkill(skillMeta.name);
+    if (content !== null && content !== undefined) {
+      // Use the skill name as the key; derive filename
+      const filename = `${skillMeta.name}.md`;
+      files[filename] = content;
+      filenames.push(filename);
+    }
+  }
+
+  return {
+    pack: {
+      name,
+      version: '1.0.0',
+      description,
+      skills: filenames,
+    },
+    files,
+  };
+}
+
+/**
+ * server_status — return server health info
+ */
+function handleServerStatus(config, store) {
+  const { skillCount, chunkCount, uniqueTerms } = store.stats();
+
+  return {
+    version: '3.0.0',
+    skillCount,
+    indexStats: { chunkCount, uniqueTerms },
+    uptime: process.uptime(),
+    config: {
+      logLevel:   config.logLevel,
+      rateLimit:  config.rateLimit,
+      cacheSize:  config.cacheSize,
+      skillsRepo: config.skillsRepo,
+    },
+  };
+}
