@@ -8,6 +8,8 @@
 
 import { McpError, ERROR_CODES } from '../errors.js';
 import { checkContent } from '../security/content-guard.js';
+import { PackFetcher } from './pack-fetcher.js';
+import { checkDuplicate } from '../store/dedup.js';
 
 // ---------------------------------------------------------------------------
 // Tool Definitions
@@ -93,7 +95,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'install_pack',
-    description: 'Install a skill pack from the community registry. (Coming soon — not yet implemented.)',
+    description: 'Install a skill pack from the community registry. Downloads, validates, and deduplicates skills from a GitHub-hosted pack.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -160,7 +162,7 @@ export async function handleToolCall(name, args, deps) {
     case 'skill_status':  return handleSkillStatus(args, store);
     case 'validate_skill': return handleValidateSkill(args);
     case 'create_skill':  return handleCreateSkill(args, store);
-    case 'install_pack':  return handleInstallPack(args);
+    case 'install_pack':  return handleInstallPack(args, store, config, deps.packFetcher);
     case 'export_pack':   return handleExportPack(args, store);
     case 'server_status': return handleServerStatus(config, store);
     default:
@@ -381,13 +383,134 @@ async function handleCreateSkill(args, store) {
 }
 
 /**
- * install_pack — stub (Task 12)
+ * install_pack — fetch a skill pack from GitHub and install validated skills.
+ *
+ * Atomic: all files are fetched and validated before anything is written.
+ * If any network fetch fails, nothing is written to disk.
+ *
+ * @param {object} args
+ * @param {object} store
+ * @param {object} config
+ * @param {PackFetcher|null} [injectedFetcher]  - Optional override for testing
  */
-function handleInstallPack(args) {
+async function handleInstallPack(args, store, config, injectedFetcher = null) {
+  const { pack: packName } = args;
+
+  if (!packName || typeof packName !== 'string' || packName.trim() === '') {
+    throw new McpError(
+      ERROR_CODES.INVALID_INPUT,
+      'install_pack requires a non-empty pack name',
+      { received: packName }
+    );
+  }
+
+  // Use injected fetcher (for tests) or create one from config
+  const fetcher = injectedFetcher ?? new PackFetcher(config);
+
+  // ---- Phase 1: Fetch pack.json ----
+  const packJson = await fetcher.fetchPackJson(packName);
+
+  const skillFiles = packJson.skills;
+  if (!Array.isArray(skillFiles) || skillFiles.length === 0) {
+    return {
+      installed: 0,
+      updated: 0,
+      skipped: 0,
+      rejected: 0,
+      details: { installed: [], updated: [], skipped: [], rejected: [] },
+    };
+  }
+
+  // ---- Phase 2: Fetch ALL skill files before touching disk ----
+  // Build Map<filename → content> in memory. Fail fast on any network error.
+  const fetched = new Map(); // filename → raw content string
+
+  for (const filename of skillFiles) {
+    // May throw McpError (PACK_NOT_FOUND or PACK_FETCH_FAILED) — propagates upward
+    const content = await fetcher.fetchSkillFile(packName, filename);
+    fetched.set(filename, content);
+  }
+
+  // ---- Phase 3: Validate all fetched files ----
+  // Build the existing-skills map for dedup.
+  // checkDuplicate() expects Map<filename → { name, hash }>.
+  // listSkills() doesn't include hash; skillStatus() does — use it.
+  const existingSkillsList = store.listSkills();
+  const existingSkillsMap = new Map();
+  for (const s of existingSkillsList) {
+    const statusEntry = store.skillStatus(s.name);
+    const filename = s.filename ?? `${s.name}.md`;
+    existingSkillsMap.set(filename, {
+      name: s.name,
+      hash: statusEntry?.hash ?? null,
+    });
+  }
+
+  const toInstall  = []; // { filename, content }
+  const toUpdate   = []; // { filename, content, replaces }
+  const skipped    = []; // filename strings
+  const rejected   = []; // { filename, reason }
+
+  for (const [filename, content] of fetched) {
+    // Content guard check
+    const guardResult = checkContent(content);
+    if (!guardResult.safe) {
+      const reasons = guardResult.violations.map(v => `${v.category}: ${v.snippet}`);
+      rejected.push({ filename, reason: reasons.join('; ') });
+      continue;
+    }
+
+    // Extract skill name from frontmatter (fallback to filename stem)
+    let skillName = filename.replace(/\.md$/, '');
+    const parts = content.split('---');
+    if (parts.length >= 3) {
+      for (const line of parts[1].split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('name:')) {
+          skillName = trimmed.slice('name:'.length).trim();
+          break;
+        }
+      }
+    }
+
+    // Dedup check
+    const dedupResult = checkDuplicate(content, skillName, existingSkillsMap);
+
+    if (dedupResult.action === 'skip') {
+      skipped.push(filename);
+    } else if (dedupResult.action === 'update') {
+      toUpdate.push({ filename, content, replaces: dedupResult.replaces });
+    } else {
+      // 'install'
+      toInstall.push({ filename, content });
+    }
+  }
+
+  // ---- Phase 4: Atomic write ----
+  // Remove old files for updates, write new/updated files
+  for (const { replaces } of toUpdate) {
+    await store.removeSkill(replaces);
+  }
+  for (const { filename, content } of [...toInstall, ...toUpdate]) {
+    await store.addSkill(filename, content);
+  }
+
+  // ---- Phase 5: Re-sign manifest + rebuild index ----
+  if (toInstall.length > 0 || toUpdate.length > 0) {
+    await store.rebuild();
+  }
+
   return {
-    implemented: false,
-    message: 'install_pack is not yet implemented — coming in Task 12',
-    pack: args.pack,
+    installed: toInstall.length,
+    updated:   toUpdate.length,
+    skipped:   skipped.length,
+    rejected:  rejected.length,
+    details: {
+      installed: toInstall.map(f => f.filename),
+      updated:   toUpdate.map(f => f.filename),
+      skipped,
+      rejected,
+    },
   };
 }
 
