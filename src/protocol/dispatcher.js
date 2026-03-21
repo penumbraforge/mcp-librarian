@@ -47,6 +47,7 @@ export class Dispatcher {
   #resourceReadFn = null;
   #promptListFn = null;
   #promptGetFn = null;
+  #onInitialized = null;
 
   /**
    * @param {object} store      - skill store (wired later)
@@ -90,6 +91,13 @@ export class Dispatcher {
   setPromptHandlers(listFn, getFn) {
     this.#promptListFn = listFn;
     this.#promptGetFn = getFn;
+  }
+
+  /**
+   * @param {Function} fn - called after the client sends `initialized` notification
+   */
+  onInitialized(fn) {
+    this.#onInitialized = fn;
   }
 
   // ---------------------------------------------------------------------------
@@ -268,7 +276,8 @@ export class Dispatcher {
   async #handleNotification(method, params) {
     switch (method) {
       case 'initialized':
-        // Client confirms it has received initialize response — no-op.
+        // Client confirms it has received initialize response
+        if (this.#onInitialized) this.#onInitialized();
         break;
 
       case 'notifications/cancelled':

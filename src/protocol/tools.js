@@ -8,6 +8,8 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { get as httpsGet } from 'node:https';
+import { get as httpGet } from 'node:http';
 import { McpError, ERROR_CODES } from '../errors.js';
 import { checkContent } from '../security/content-guard.js';
 import { PackFetcher } from './pack-fetcher.js';
@@ -136,6 +138,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'fetch_page',
+    description: 'Fetch a web page and extract readable text. Use this to research authoritative sources (official docs, RFCs, guides) before creating a skill with create_skill. Returns clean text stripped of HTML.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to fetch (https preferred)' },
+      },
+      required: ['url'],
+    },
+  },
+  {
     name: 'server_status',
     description: 'Get server status: version, skill count, index stats, uptime, and config summary.',
     inputSchema: {
@@ -179,6 +192,7 @@ export async function handleToolCall(name, args, deps) {
     case 'create_skill':  return handleCreateSkill(args, store);
     case 'install_pack':  return handleInstallPack(args, store, config, deps.packFetcher);
     case 'export_pack':   return handleExportPack(args, store, config);
+    case 'fetch_page':    return handleFetchPage(args);
     case 'server_status': return handleServerStatus(config, store);
     default:
       throw new McpError(
@@ -614,6 +628,121 @@ async function handleExportPack(args, store, config) {
     path: exportDir,
     pack: packJson,
   };
+}
+
+/**
+ * fetch_page — fetch a URL and extract readable text for skill research
+ */
+async function handleFetchPage(args) {
+  const { url } = args;
+
+  if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+    throw new McpError(
+      ERROR_CODES.INVALID_INPUT,
+      'fetch_page requires a valid http or https URL',
+      { received: url }
+    );
+  }
+
+  const html = await fetchUrl(url);
+  const text = extractText(html);
+
+  // Truncate to ~50K chars to avoid overwhelming the agent
+  const truncated = text.length > 50000 ? text.slice(0, 50000) + '\n\n[Truncated — content exceeded 50,000 characters]' : text;
+
+  return { url, length: text.length, content: truncated };
+}
+
+/**
+ * Fetch a URL and return the response body as a string.
+ * Follows up to 5 redirects.
+ */
+function fetchUrl(url, redirects = 0) {
+  if (redirects > 5) {
+    return Promise.reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, 'Too many redirects', { url }));
+  }
+
+  const getter = url.startsWith('https') ? httpsGet : httpGet;
+
+  return new Promise((resolve, reject) => {
+    const req = getter(url, { headers: { 'User-Agent': 'mcp-librarian/3.0.0' }, timeout: 15000 }, (res) => {
+      // Follow redirects
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        const next = new URL(res.headers.location, url).href;
+        return resolve(fetchUrl(next, redirects + 1));
+      }
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        return reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, `HTTP ${res.statusCode} fetching ${url}`, { url, status: res.statusCode }));
+      }
+
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', e => reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, e.message, { url })));
+    });
+
+    req.on('timeout', () => { req.destroy(); reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, 'Timeout', { url })); });
+    req.on('error', e => reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, e.message, { url })));
+  });
+}
+
+/**
+ * Strip HTML tags and extract readable text.
+ * Preserves code blocks, headings, and paragraph structure.
+ */
+function extractText(html) {
+  let text = html;
+
+  // Remove script, style, nav, footer, header content entirely
+  text = text.replace(/<(script|style|nav|footer|header|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+
+  // Convert code/pre blocks to fenced blocks
+  text = text.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, (_, code) => {
+    return '\n```\n' + decodeEntities(code) + '\n```\n';
+  });
+  text = text.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_, code) => '`' + decodeEntities(code) + '`');
+
+  // Convert headings
+  text = text.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, (_, t) => '\n# ' + decodeEntities(stripTags(t)) + '\n');
+  text = text.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (_, t) => '\n## ' + decodeEntities(stripTags(t)) + '\n');
+  text = text.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, (_, t) => '\n### ' + decodeEntities(stripTags(t)) + '\n');
+
+  // Convert list items
+  text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, t) => '- ' + decodeEntities(stripTags(t)).trim() + '\n');
+
+  // Convert paragraphs and divs to double newlines
+  text = text.replace(/<\/(p|div|article|section|tr)>/gi, '\n\n');
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+
+  // Strip remaining HTML tags
+  text = stripTags(text);
+
+  // Decode HTML entities
+  text = decodeEntities(text);
+
+  // Clean up whitespace: collapse runs of 3+ newlines to 2, trim lines
+  text = text.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+$/gm, '').trim();
+
+  return text;
+}
+
+function stripTags(html) {
+  return html.replace(/<[^>]+>/g, '');
+}
+
+function decodeEntities(text) {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
 }
 
 /**

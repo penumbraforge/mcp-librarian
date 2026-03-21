@@ -42,10 +42,30 @@ const transport = new StdioTransport(process.stdin, process.stdout);
 const logger = new McpLogger(transport, config.logLevel);
 const dispatcher = new Dispatcher(store, config, transport);
 
-// Wire tool handlers
+// Emit skill catalog so the agent knows what's available
+function emitSkillCatalog() {
+  const skills = store.listSkills();
+  if (skills.length === 0) {
+    logger.info('No skills installed. Use install_pack to add skill packs, or create_skill to write your own.');
+    return;
+  }
+  const catalog = skills.map(s => `  - ${s.name}: ${s.description}`).join('\n');
+  logger.info(
+    `Your knowledge library has ${skills.length} skill${skills.length > 1 ? 's' : ''}. ` +
+    `Use find_and_load to pull relevant patterns before implementing.\n\nAvailable skills:\n${catalog}`
+  );
+}
+
+// Wire tool handlers — emit updated catalog after mutations
+const MUTATION_TOOLS = new Set(['create_skill', 'install_pack']);
+
 dispatcher.setToolHandlers(
   getToolDefinitions(),
-  (name, toolArgs) => handleToolCall(name, toolArgs, { store, config, logger, contentGuard: { checkContent }, ed25519 })
+  async (name, toolArgs) => {
+    const result = await handleToolCall(name, toolArgs, { store, config, logger, contentGuard: { checkContent }, ed25519 });
+    if (MUTATION_TOOLS.has(name)) emitSkillCatalog();
+    return result;
+  }
 );
 
 // Wire resource handlers
@@ -59,6 +79,9 @@ dispatcher.setPromptHandlers(
   () => listPrompts(),
   (name, promptArgs) => getPrompt(name, promptArgs)
 );
+
+// Emit skill catalog after the client finishes initialization
+dispatcher.onInitialized(() => emitSkillCatalog());
 
 // Route messages — track in-flight requests so shutdown waits for them
 let pendingRequests = 0;

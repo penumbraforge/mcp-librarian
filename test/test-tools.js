@@ -75,16 +75,16 @@ async function call(name, args = {}) {
 
 describe('tools', () => {
 
-  // 1. getToolDefinitions() returns all 11 tools
-  it('getToolDefinitions() returns array with all 11 tools, each with name/description/inputSchema', () => {
+  // 1. getToolDefinitions() returns all 12 tools
+  it('getToolDefinitions() returns array with all 12 tools, each with name/description/inputSchema', () => {
     const defs = getToolDefinitions();
     assert.ok(Array.isArray(defs), 'must return an array');
-    assert.equal(defs.length, 11, `expected 11 tools, got ${defs.length}`);
+    assert.equal(defs.length, 12, `expected 12 tools, got ${defs.length}`);
 
     const expectedNames = [
       'find_skill', 'find_and_load', 'load_section', 'load_skill', 'list_skills',
       'skill_status', 'validate_skill', 'create_skill', 'install_pack',
-      'export_pack', 'server_status',
+      'export_pack', 'fetch_page', 'server_status',
     ];
 
     for (const expected of expectedNames) {

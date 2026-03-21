@@ -138,6 +138,16 @@ These patterns are safe inside fenced code blocks (used legitimately as examples
 
 Write clear, factual technical prose. Do not include meta-instructions to any AI in the skill body.
 
+## Research First
+
+Before writing, use \`fetch_page\` to pull content from authoritative sources:
+
+\`\`\`
+fetch_page({ url: "https://official-docs-url.example.com/topic" })
+\`\`\`
+
+Use official documentation, RFCs, and established style guides as primary sources. Include source URLs in the skill when referencing external material.
+
 ## Next Step
 
 After writing the skill, use the \`create_skill\` tool to save and validate it:
