@@ -2,8 +2,6 @@
 
 Zero-dependency MCP skills server. BM25 search, Ed25519 integrity, progressive disclosure.
 
-Built by [Shadoe Myers](https://penumbraforge.com) at [Penumbra Forge](https://penumbraforge.com).
-
 ## What is this?
 
 mcp-librarian is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that gives your AI coding agent access to a searchable library of skill files. Skills are markdown documents with structured knowledge — coding patterns, security references, workflow guides, anything your agent needs to know.
@@ -163,5 +161,3 @@ No build step. No dependency install. Changes take effect on next MCP session.
 ## License
 
 MIT — Copyright (c) 2026 [Penumbra Forge](https://penumbraforge.com)
-
-Built by Shadoe Myers. Arizona.
