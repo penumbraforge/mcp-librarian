@@ -12,6 +12,7 @@ import { checkContent } from '../src/security/content-guard.js';
 import * as ed25519 from '../src/security/ed25519.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const home = process.env.MCP_LIBRARIAN_HOME || join(homedir(), '.mcp-librarian');
 const config = await loadConfig(home);
@@ -19,7 +20,16 @@ const args = process.argv.slice(2);
 
 // Sign subcommand
 if (args[0] === 'sign') {
-  await signAllSkills(config);
+  const privateKeyPath = join(home, 'keys', 'private.pem');
+  let privateKey;
+  try {
+    privateKey = await readFile(privateKeyPath, 'utf8');
+  } catch (err) {
+    process.stderr.write(`Error: could not read private key at ${privateKeyPath}: ${err.message}\n`);
+    process.stderr.write('Run node bin/install.js first to generate keys.\n');
+    process.exit(1);
+  }
+  await signAllSkills({ ...config, privateKey });
   process.stderr.write('Skills signed successfully.\n');
   process.exit(0);
 }
