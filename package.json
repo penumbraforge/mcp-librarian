@@ -1,0 +1,22 @@
+{
+  "name": "mcp-librarian",
+  "version": "3.0.0",
+  "description": "Zero-dependency MCP skills server — BM25 search, Ed25519 integrity, progressive disclosure",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "bin": {
+    "mcp-librarian": "./bin/mcp-librarian.js"
+  },
+  "scripts": {
+    "start": "node bin/mcp-librarian.js",
+    "test": "node --test test/test-*.js",
+    "install-server": "node bin/install.js"
+  },
+  "keywords": ["mcp", "skills", "search", "bm25", "ed25519"],
+  "author": "Shadoe Myers <shadoe@penumbraforge.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/penumbraforge/mcp-librarian.git"
+  }
+}
