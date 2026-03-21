@@ -34,11 +34,11 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'find_and_load',
-    description: 'Search the knowledge library and return the full content of the top matching skill in one call. Use this when you need actionable patterns for a task — combines search + load into a single step.',
+    description: 'Search the knowledge library and return the full content of the top matching skill. If no matching skill exists, automatically researches the topic from authoritative web sources and creates a new skill — so the user never hits a dead end. Use this when you need actionable patterns for any task.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Natural language search query' },
+        query: { type: 'string', description: 'Natural language search query (e.g. "SQL injection prevention", "Kubernetes pod security")' },
       },
       required: ['query'],
     },
@@ -148,8 +148,24 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'research_topic',
+    description: 'Research a topic by searching the web and fetching authoritative sources. Returns extracted content from multiple high-quality pages (official docs, RFCs, established guides). Use this before create_skill to ensure skills are built from current, authoritative information — not just training data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic:   { type: 'string', description: 'Topic to research (e.g. "Kubernetes pod security", "PostgreSQL connection pooling")' },
+        urls:    {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional specific URLs to fetch in addition to search results',
+        },
+      },
+      required: ['topic'],
+    },
+  },
+  {
     name: 'fetch_page',
-    description: 'Fetch a web page and extract readable text. Use this to research authoritative sources (official docs, RFCs, guides) before creating a skill with create_skill. Returns clean text stripped of HTML.',
+    description: 'Fetch a single web page and extract readable text. For broad research, prefer research_topic which searches and fetches multiple sources automatically.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -203,6 +219,7 @@ export async function handleToolCall(name, args, deps) {
     case 'browse_packs':  return handleBrowsePacks(args, config);
     case 'install_pack':  return handleInstallPack(args, store, config, deps.packFetcher);
     case 'export_pack':   return handleExportPack(args, store, config);
+    case 'research_topic': return handleResearchTopic(args);
     case 'fetch_page':    return handleFetchPage(args);
     case 'server_status': return handleServerStatus(config, store);
     default:
@@ -252,26 +269,48 @@ async function handleFindAndLoad(args, store) {
 
   const results = store.search(query, 5);
 
-  if (results.length === 0) {
-    return { found: false, query, message: 'No matching skills found.' };
+  // If we have a good match (score > 0.5), return it
+  if (results.length > 0 && results[0].score > 0.5) {
+    const topSkill = results[0].skill;
+    const content = await store.getSkill(topSkill);
+    const sections = store.getSectionSlugs(topSkill);
+
+    const otherMatches = [...new Set(results.map(r => r.skill))]
+      .filter(s => s !== topSkill)
+      .slice(0, 3);
+
+    return {
+      found: true,
+      skill: topSkill,
+      content,
+      sections,
+      otherMatches: otherMatches.length > 0 ? otherMatches : undefined,
+    };
   }
 
-  // Load the top-scoring skill's full content
-  const topSkill = results[0].skill;
-  const content = await store.getSkill(topSkill);
-  const sections = store.getSectionSlugs(topSkill);
+  // No good match — auto-research the topic from authoritative sources
+  // Return the research so the agent can synthesize a skill with create_skill
+  let research;
+  try {
+    research = await handleResearchTopic({ topic: query });
+  } catch {
+    return {
+      found: false,
+      query,
+      message: `No matching skill found and web research failed. Use create_skill to write one manually.`,
+    };
+  }
 
-  // Include other matches as suggestions
-  const otherMatches = [...new Set(results.map(r => r.skill))]
-    .filter(s => s !== topSkill)
-    .slice(0, 3);
+  const successfulSources = research.sources?.filter(s => s.content) ?? [];
 
   return {
-    found: true,
-    skill: topSkill,
-    content,
-    sections,
-    otherMatches: otherMatches.length > 0 ? otherMatches : undefined,
+    found: false,
+    autoResearch: true,
+    query,
+    sourcesFound: research.sourcesFound,
+    sourcesFetched: successfulSources.length,
+    sources: research.sources,
+    instruction: `No existing skill matched "${query}". Research from ${successfulSources.length} authoritative sources is included above. Create a skill now using create_skill with this research as the basis. Use the skill format: YAML frontmatter (name, version, category, description) + ## sections with code examples. Include source URLs for attribution.`,
   };
 }
 
@@ -688,6 +727,180 @@ async function handleExportPack(args, store, config) {
     path: exportDir,
     pack: packJson,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative domain scoring — prioritize official docs over random blogs
+// ---------------------------------------------------------------------------
+
+const AUTHORITATIVE_DOMAINS = new Set([
+  // Official documentation sites
+  'docs.github.com', 'developer.mozilla.org', 'nodejs.org', 'typescriptlang.org',
+  'react.dev', 'vuejs.org', 'angular.dev', 'svelte.dev',
+  'kubernetes.io', 'docker.com', 'docs.docker.com',
+  'postgresql.org', 'dev.mysql.com', 'redis.io', 'mongodb.com',
+  'aws.amazon.com', 'cloud.google.com', 'learn.microsoft.com', 'azure.microsoft.com',
+  'expressjs.com', 'fastify.dev', 'nextjs.org', 'nuxt.com',
+  'prisma.io', 'sequelize.org', 'knexjs.org',
+  'jestjs.io', 'vitest.dev', 'playwright.dev', 'cypress.io',
+  'eslint.org', 'prettier.io',
+  'rust-lang.org', 'go.dev', 'python.org', 'ruby-lang.org',
+  'nginx.org', 'httpd.apache.org',
+  'grafana.com', 'prometheus.io',
+  // Standards bodies and security orgs
+  'owasp.org', 'cheatsheetseries.owasp.org',
+  'rfc-editor.org', 'ietf.org', 'w3.org', 'tc39.es',
+  'cisa.gov', 'nist.gov', 'cisecurity.org',
+  // High-quality community
+  'web.dev', 'patterns.dev', 'refactoring.guru',
+]);
+
+function scoreSource(url) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    // Exact match
+    if (AUTHORITATIVE_DOMAINS.has(hostname)) return 10;
+    // Subdomain match (e.g., docs.aws.amazon.com matches aws.amazon.com)
+    for (const domain of AUTHORITATIVE_DOMAINS) {
+      if (hostname.endsWith('.' + domain) || hostname === domain) return 10;
+    }
+    // Known high-quality secondary sources
+    if (hostname.includes('github.com') || hostname.includes('stackoverflow.com')) return 5;
+    // Everything else
+    return 1;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * research_topic — search the web, score sources by authority, fetch top results
+ */
+async function handleResearchTopic(args) {
+  const { topic, urls: extraUrls = [] } = args;
+
+  if (!topic || typeof topic !== 'string' || topic.trim() === '') {
+    throw new McpError(
+      ERROR_CODES.INVALID_INPUT,
+      'research_topic requires a non-empty topic',
+      { received: topic }
+    );
+  }
+
+  // Phase 1: Search the web for relevant pages
+  const searchQuery = `${topic} official documentation best practices`;
+  let searchResults = [];
+  try {
+    searchResults = await webSearch(searchQuery);
+  } catch (err) {
+    // Search failed — fall back to any provided URLs
+    if (extraUrls.length === 0) {
+      throw new McpError(
+        ERROR_CODES.PACK_FETCH_FAILED,
+        `Web search failed and no fallback URLs provided: ${err.message}`,
+        { topic }
+      );
+    }
+  }
+
+  // Phase 2: Combine search results with explicit URLs, score, and rank
+  const allUrls = [
+    ...searchResults.map(r => ({ url: r.url, title: r.title, source: 'search' })),
+    ...extraUrls.map(u => ({ url: u, title: '', source: 'provided' })),
+  ];
+
+  // Deduplicate by URL
+  const seen = new Set();
+  const unique = allUrls.filter(r => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+
+  // Score by domain authority and sort
+  const scored = unique
+    .map(r => ({ ...r, authority: scoreSource(r.url) }))
+    .sort((a, b) => b.authority - a.authority);
+
+  // Take top 5 sources (prioritizing authoritative)
+  const top = scored.slice(0, 5);
+
+  // Phase 3: Fetch each source in parallel
+  const sources = await Promise.all(
+    top.map(async (entry) => {
+      try {
+        const html = await fetchUrl(entry.url);
+        const text = extractText(html);
+        // Truncate per-source to keep total manageable
+        const truncated = text.length > 15000 ? text.slice(0, 15000) + '\n[Truncated]' : text;
+        return {
+          url: entry.url,
+          title: entry.title || extractTitle(html),
+          authority: entry.authority >= 10 ? 'official' : entry.authority >= 5 ? 'established' : 'community',
+          length: text.length,
+          content: truncated,
+        };
+      } catch {
+        return { url: entry.url, title: entry.title, authority: 'failed', error: 'Could not fetch' };
+      }
+    })
+  );
+
+  const successful = sources.filter(s => s.authority !== 'failed');
+
+  return {
+    topic,
+    sourcesFound: scored.length,
+    sourcesFetched: successful.length,
+    sources: sources.map(s => ({
+      url: s.url,
+      title: s.title,
+      authority: s.authority,
+      ...(s.content ? { content: s.content } : { error: s.error }),
+    })),
+    guidance: successful.length > 0
+      ? `Found ${successful.length} sources. Use the content above to create a skill with create_skill. Prioritize "official" sources over "community" ones. Include source URLs in the skill for attribution.`
+      : 'No sources could be fetched. Try providing specific URLs with the urls parameter.',
+  };
+}
+
+/**
+ * Search the web using DuckDuckGo HTML and extract result URLs.
+ */
+async function webSearch(query) {
+  const encoded = encodeURIComponent(query);
+  const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
+
+  const html = await fetchUrl(url);
+
+  // Extract result links from DuckDuckGo HTML results
+  const results = [];
+  const linkRegex = /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+
+  while ((match = linkRegex.exec(html)) !== null && results.length < 15) {
+    let href = match[1];
+    const title = stripTags(match[2]).trim();
+
+    // DuckDuckGo wraps URLs in a redirect — extract the actual URL
+    if (href.includes('uddg=')) {
+      try {
+        const uddg = new URL(href, 'https://duckduckgo.com').searchParams.get('uddg');
+        if (uddg) href = uddg;
+      } catch { /* use as-is */ }
+    }
+
+    if (href.startsWith('http') && title) {
+      results.push({ url: href, title });
+    }
+  }
+
+  return results;
+}
+
+function extractTitle(html) {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? decodeEntities(stripTags(match[1])).trim() : '';
 }
 
 /**
