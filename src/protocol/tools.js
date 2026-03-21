@@ -20,42 +20,53 @@ import { checkDuplicate } from '../store/dedup.js';
 const TOOL_DEFINITIONS = [
   {
     name: 'find_skill',
-    description: 'BM25 search across all installed skills. Returns ranked chunks with relevance scores.',
+    description: 'Search your knowledge library for patterns and best practices. Use this BEFORE implementing features involving security, APIs, databases, testing, Docker, TypeScript, git workflows, or any domain where established patterns exist. Returns ranked results with relevance scores.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
+        query: { type: 'string', description: 'Natural language search query (e.g. "SQL injection prevention", "git rebase workflow")' },
         limit: { type: 'number', description: 'Max results (default 10)' },
       },
       required: ['query'],
     },
   },
   {
+    name: 'find_and_load',
+    description: 'Search the knowledge library and return the full content of the top matching skill in one call. Use this when you need actionable patterns for a task — combines search + load into a single step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Natural language search query' },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'load_section',
-    description: 'Load a specific section from a skill by section heading slug.',
+    description: 'Load a specific section from a skill by its slug path. Use when you only need one part of a skill (e.g. just the "error-handling" section).',
     inputSchema: {
       type: 'object',
       properties: {
         skill:   { type: 'string', description: 'Skill name' },
-        section: { type: 'string', description: 'Section heading slug (e.g. "getting-started/installation")' },
+        section: { type: 'string', description: 'Section heading slug (e.g. "common-pitfalls", "image-hardening/use-minimal-base-images")' },
       },
       required: ['skill', 'section'],
     },
   },
   {
     name: 'load_skill',
-    description: 'Load the full content of a skill by name.',
+    description: 'Load the full content of a skill by exact name. Use when you already know which skill you need.',
     inputSchema: {
       type: 'object',
       properties: {
-        skill: { type: 'string', description: 'Skill name' },
+        skill: { type: 'string', description: 'Skill name (e.g. "security-hardening", "api-design")' },
       },
       required: ['skill'],
     },
   },
   {
     name: 'list_skills',
-    description: 'List all installed skills with metadata (name, version, categories, description, integrity).',
+    description: 'List all installed skills with their names, descriptions, categories, and available sections. Use this to see what knowledge is available in the library.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -159,6 +170,7 @@ export async function handleToolCall(name, args, deps) {
 
   switch (name) {
     case 'find_skill':    return handleFindSkill(args, store);
+    case 'find_and_load': return handleFindAndLoad(args, store);
     case 'load_section':  return handleLoadSection(args, store);
     case 'load_skill':    return handleLoadSkill(args, store);
     case 'list_skills':   return handleListSkills(store);
@@ -197,6 +209,45 @@ function handleFindSkill(args, store) {
 
   const results = store.search(query, limit);
   return { results };
+}
+
+/**
+ * find_and_load — search and return the top skill's full content in one call
+ */
+async function handleFindAndLoad(args, store) {
+  const { query } = args;
+
+  if (!query || typeof query !== 'string' || query.trim() === '') {
+    throw new McpError(
+      ERROR_CODES.INVALID_INPUT,
+      'find_and_load requires a non-empty query string',
+      { received: query }
+    );
+  }
+
+  const results = store.search(query, 5);
+
+  if (results.length === 0) {
+    return { found: false, query, message: 'No matching skills found.' };
+  }
+
+  // Load the top-scoring skill's full content
+  const topSkill = results[0].skill;
+  const content = await store.getSkill(topSkill);
+  const sections = store.getSectionSlugs(topSkill);
+
+  // Include other matches as suggestions
+  const otherMatches = [...new Set(results.map(r => r.skill))]
+    .filter(s => s !== topSkill)
+    .slice(0, 3);
+
+  return {
+    found: true,
+    skill: topSkill,
+    content,
+    sections,
+    otherMatches: otherMatches.length > 0 ? otherMatches : undefined,
+  };
 }
 
 /**
