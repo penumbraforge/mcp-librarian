@@ -182,7 +182,14 @@ export class Dispatcher {
           return undefined;
         }
         if (this.#toolCallHandler) {
-          return await this.#toolCallHandler(name, args);
+          const raw = await this.#toolCallHandler(name, args);
+          // MCP spec: tools/call results must be wrapped in content blocks
+          if (raw && raw.content && Array.isArray(raw.content)) {
+            return raw; // Already in MCP format
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify(raw, null, 2) }],
+          };
         }
         // Stub: not yet wired
         return { content: [{ type: 'text', text: `Tool "${name}" not yet wired` }] };
@@ -190,7 +197,11 @@ export class Dispatcher {
 
       // Resources
       case 'resources/list': {
-        if (this.#resourceListFn) return await this.#resourceListFn();
+        if (this.#resourceListFn) {
+          const list = await this.#resourceListFn();
+          // Wrap in { resources } if the handler returned a plain array
+          return Array.isArray(list) ? { resources: list } : list;
+        }
         return { resources: [] };
       }
 
@@ -206,7 +217,11 @@ export class Dispatcher {
 
       // Prompts
       case 'prompts/list': {
-        if (this.#promptListFn) return await this.#promptListFn();
+        if (this.#promptListFn) {
+          const list = await this.#promptListFn();
+          // Wrap in { prompts } if the handler returned a plain array
+          return Array.isArray(list) ? { prompts: list } : list;
+        }
         return { prompts: [] };
       }
 
