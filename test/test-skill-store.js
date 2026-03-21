@@ -225,6 +225,8 @@ describe('SkillStore', () => {
     assert.ok('description' in skill, 'has description');
     assert.ok('integrity' in skill, 'has integrity');
     assert.ok('filename' in skill, 'has filename');
+    assert.ok('sections' in skill, 'has sections');
+    assert.ok(Array.isArray(skill.sections), 'sections is an array');
 
     // Without a manifest, integrity should be UNSIGNED
     assert.equal(skill.integrity, 'UNSIGNED');

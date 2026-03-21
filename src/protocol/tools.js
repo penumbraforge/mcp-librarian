@@ -6,6 +6,8 @@
  *  - handleToolCall(name, args, deps) — dispatches to the correct handler
  */
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { McpError, ERROR_CODES } from '../errors.js';
 import { checkContent } from '../security/content-guard.js';
 import { PackFetcher } from './pack-fetcher.js';
@@ -95,11 +97,12 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'install_pack',
-    description: 'Install a skill pack from the community registry. Downloads, validates, and deduplicates skills from a GitHub-hosted pack.',
+    description: 'Install a skill pack from the community registry or a direct URL. Downloads, validates, and deduplicates skills.',
     inputSchema: {
       type: 'object',
       properties: {
         pack: { type: 'string', description: 'Pack identifier (e.g. "penumbraforge/web-dev-pack")' },
+        url:  { type: 'string', description: 'Direct URL to a pack.json file (overrides pack identifier and default repo)' },
       },
       required: ['pack'],
     },
@@ -163,7 +166,7 @@ export async function handleToolCall(name, args, deps) {
     case 'validate_skill': return handleValidateSkill(args);
     case 'create_skill':  return handleCreateSkill(args, store);
     case 'install_pack':  return handleInstallPack(args, store, config, deps.packFetcher);
-    case 'export_pack':   return handleExportPack(args, store);
+    case 'export_pack':   return handleExportPack(args, store, config);
     case 'server_status': return handleServerStatus(config, store);
     default:
       throw new McpError(
@@ -229,7 +232,10 @@ async function handleLoadSkill(args, store) {
     );
   }
 
-  return { content };
+  // Include section slugs so the caller knows valid load_section paths
+  const sections = store.getSectionSlugs(skill);
+
+  return { content, sections };
 }
 
 /**
@@ -394,7 +400,7 @@ async function handleCreateSkill(args, store) {
  * @param {PackFetcher|null} [injectedFetcher]  - Optional override for testing
  */
 async function handleInstallPack(args, store, config, injectedFetcher = null) {
-  const { pack: packName } = args;
+  const { pack: packName, url: directUrl } = args;
 
   if (!packName || typeof packName !== 'string' || packName.trim() === '') {
     throw new McpError(
@@ -407,8 +413,8 @@ async function handleInstallPack(args, store, config, injectedFetcher = null) {
   // Use injected fetcher (for tests) or create one from config
   const fetcher = injectedFetcher ?? new PackFetcher(config);
 
-  // ---- Phase 1: Fetch pack.json ----
-  const packJson = await fetcher.fetchPackJson(packName);
+  // ---- Phase 1: Fetch pack.json (from direct URL or default repo) ----
+  const packJson = await fetcher.fetchPackJson(packName, directUrl);
 
   const skillFiles = packJson.skills;
   if (!Array.isArray(skillFiles) || skillFiles.length === 0) {
@@ -517,7 +523,7 @@ async function handleInstallPack(args, store, config, injectedFetcher = null) {
 /**
  * export_pack — export skills as a distributable pack
  */
-async function handleExportPack(args, store) {
+async function handleExportPack(args, store, config) {
   const { name, description, skills: skillFilter } = args;
 
   // Get the list of all skills
@@ -529,27 +535,33 @@ async function handleExportPack(args, store) {
     : allSkills;
 
   // Load content for each skill
-  const files = {};
   const filenames = [];
+  const skillContents = [];
 
   for (const skillMeta of skillsToExport) {
     const content = await store.getSkill(skillMeta.name);
     if (content !== null && content !== undefined) {
-      // Use the skill name as the key; derive filename
       const filename = `${skillMeta.name}.md`;
-      files[filename] = content;
       filenames.push(filename);
+      skillContents.push({ filename, content });
     }
   }
 
+  // Write pack files to disk
+  const exportDir = join(config.home, 'exports', name);
+  await mkdir(exportDir, { recursive: true });
+
+  const packJson = { name, version: '1.0.0', description, skills: filenames };
+  await writeFile(join(exportDir, 'pack.json'), JSON.stringify(packJson, null, 2) + '\n', 'utf8');
+
+  for (const { filename, content } of skillContents) {
+    await writeFile(join(exportDir, filename), content, 'utf8');
+  }
+
   return {
-    pack: {
-      name,
-      version: '1.0.0',
-      description,
-      skills: filenames,
-    },
-    files,
+    exported: filenames.length,
+    path: exportDir,
+    pack: packJson,
   };
 }
 

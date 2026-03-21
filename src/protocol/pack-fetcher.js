@@ -22,16 +22,25 @@ export class PackFetcher {
    */
   constructor(config) {
     this._repo = config.skillsRepo;
+    this._baseUrl = null; // Set when using direct URL mode
   }
 
   /**
    * Fetch and parse pack.json for a named pack.
+   * If directUrl is provided, fetches from that URL instead of the default repo.
    *
    * @param {string} packName
+   * @param {string} [directUrl]  - Direct URL to pack.json
    * @returns {Promise<object>} Parsed JSON object
    */
-  async fetchPackJson(packName) {
-    const url = `https://raw.githubusercontent.com/${this._repo}/main/packs/${packName}/pack.json`;
+  async fetchPackJson(packName, directUrl) {
+    const url = directUrl || `https://raw.githubusercontent.com/${this._repo}/main/packs/${packName}/pack.json`;
+
+    // Store the base URL so fetchSkillFile can resolve relative paths
+    if (directUrl) {
+      this._baseUrl = directUrl.replace(/\/pack\.json$/, '');
+    }
+
     const body = await this._fetch(url);
     try {
       return JSON.parse(body);
@@ -52,7 +61,8 @@ export class PackFetcher {
    * @returns {Promise<string>} Raw file content
    */
   async fetchSkillFile(packName, filename) {
-    const url = `https://raw.githubusercontent.com/${this._repo}/main/packs/${packName}/${filename}`;
+    const base = this._baseUrl || `https://raw.githubusercontent.com/${this._repo}/main/packs/${packName}`;
+    const url = `${base}/${filename}`;
     return this._fetch(url);
   }
 

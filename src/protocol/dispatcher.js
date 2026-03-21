@@ -182,14 +182,22 @@ export class Dispatcher {
           return undefined;
         }
         if (this.#toolCallHandler) {
-          const raw = await this.#toolCallHandler(name, args);
-          // MCP spec: tools/call results must be wrapped in content blocks
-          if (raw && raw.content && Array.isArray(raw.content)) {
-            return raw; // Already in MCP format
+          try {
+            const raw = await this.#toolCallHandler(name, args);
+            // MCP spec: tools/call results must be wrapped in content blocks
+            if (raw && raw.content && Array.isArray(raw.content)) {
+              return raw; // Already in MCP format
+            }
+            return {
+              content: [{ type: 'text', text: JSON.stringify(raw, null, 2) }],
+            };
+          } catch (err) {
+            // MCP spec: tool-level errors use isError flag, not JSON-RPC errors
+            return {
+              content: [{ type: 'text', text: err.message || String(err) }],
+              isError: true,
+            };
           }
-          return {
-            content: [{ type: 'text', text: JSON.stringify(raw, null, 2) }],
-          };
         }
         // Stub: not yet wired
         return { content: [{ type: 'text', text: `Tool "${name}" not yet wired` }] };

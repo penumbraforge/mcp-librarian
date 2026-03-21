@@ -14,7 +14,7 @@
  *  7. Prints next-steps success message
  */
 
-import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, copyFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -199,7 +199,29 @@ async function main() {
     }
 
     // -----------------------------------------------------------------------
-    // Step 5: Auto-detect MCP clients
+    // Step 5: Copy bundled starter skills
+    // -----------------------------------------------------------------------
+    const bundledSkillsDir = resolve(__dirname, '..', 'skills');
+    try {
+      const bundled = await readdir(bundledSkillsDir);
+      const mdFiles = bundled.filter(f => f.endsWith('.md'));
+      let copied = 0;
+      for (const file of mdFiles) {
+        const dest = join(skillsDir, file);
+        if (!(await fileExists(dest))) {
+          await copyFile(join(bundledSkillsDir, file), dest);
+          copied++;
+        }
+      }
+      if (copied > 0) {
+        process.stdout.write(`Installed ${copied} starter skill${copied > 1 ? 's' : ''}.\n`);
+      }
+    } catch {
+      // Bundled skills dir missing — not fatal
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 6: Auto-detect MCP clients
     // -----------------------------------------------------------------------
     process.stdout.write('\nDetecting MCP clients...\n');
 
@@ -267,7 +289,7 @@ async function main() {
     }
 
     // -----------------------------------------------------------------------
-    // Step 6: Print manual instructions if no clients were auto-configured
+    // Step 7: Print manual instructions if no clients were auto-configured
     // -----------------------------------------------------------------------
     if (configuredClients.length === 0) {
       process.stdout.write(`
@@ -282,7 +304,7 @@ To configure manually, add this to your MCP client config:
     }
 
     // -----------------------------------------------------------------------
-    // Step 7: Success message
+    // Step 8: Success message
     // -----------------------------------------------------------------------
     const displayHome = home.startsWith(homedir())
       ? home.replace(homedir(), '~')

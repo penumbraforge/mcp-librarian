@@ -206,6 +206,14 @@ export class SkillStore {
       // Pre-populate content cache so getSection works synchronously
       this.#cache.set(name, skill.content);
 
+      // Index skill metadata (name, description, categories) for search
+      const metaText = [
+        name,
+        skill.frontmatter.description || '',
+        ...(skill.frontmatter.categories || []),
+      ].join(' ');
+      this.#index.add(name, '_metadata', metaText);
+
       // Index skill content via BM25
       const sections = parseSkillSections(skill.content);
       for (const { section, content: sectionContent } of sections) {
@@ -271,14 +279,32 @@ export class SkillStore {
    * @returns {Array<{ name, version, categories, description, integrity, filename }>}
    */
   listSkills() {
-    return [...this.#skills.entries()].map(([name, meta]) => ({
-      name,
-      version: meta.frontmatter.version,
-      categories: meta.frontmatter.categories,
-      description: meta.frontmatter.description,
-      integrity: meta.integrity,
-      filename: meta.filename,
-    }));
+    return [...this.#skills.entries()].map(([name, meta]) => {
+      // Include available section slugs so users know valid load_section paths
+      const content = this.#cache.get(name);
+      const sections = content ? parseSkillSections(content).map(s => s.section) : [];
+
+      return {
+        name,
+        version: meta.frontmatter.version,
+        categories: meta.frontmatter.categories,
+        description: meta.frontmatter.description,
+        integrity: meta.integrity,
+        filename: meta.filename,
+        sections,
+      };
+    });
+  }
+
+  /**
+   * Return section slug paths for a skill (for load_section).
+   * @param {string} name
+   * @returns {string[]}
+   */
+  getSectionSlugs(name) {
+    const content = this.#cache.get(name);
+    if (content === undefined) return [];
+    return parseSkillSections(content).map(s => s.section);
   }
 
   /**

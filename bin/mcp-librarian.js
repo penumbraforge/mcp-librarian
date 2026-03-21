@@ -60,11 +60,32 @@ dispatcher.setPromptHandlers(
   (name, promptArgs) => getPrompt(name, promptArgs)
 );
 
-// Route messages
-transport.onMessage((msg) => dispatcher.handleMessage(msg));
+// Route messages — track in-flight requests so shutdown waits for them
+let pendingRequests = 0;
+let stdinEnded = false;
 
-// Graceful shutdown
-process.on('SIGTERM', () => process.exit(0));
-process.stdin.on('end', () => process.exit(0));
+function exitIfDrained() {
+  if (stdinEnded && pendingRequests === 0) process.exit(0);
+}
+
+transport.onMessage(async (msg) => {
+  pendingRequests++;
+  try {
+    await dispatcher.handleMessage(msg);
+  } finally {
+    pendingRequests--;
+    exitIfDrained();
+  }
+});
+
+// Graceful shutdown — wait for in-flight work before exiting
+process.on('SIGTERM', () => {
+  stdinEnded = true;
+  exitIfDrained();
+});
+process.stdin.on('end', () => {
+  stdinEnded = true;
+  exitIfDrained();
+});
 
 logger.info('mcp-librarian started', { skillCount: store.stats().skillCount });
