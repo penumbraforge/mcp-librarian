@@ -109,6 +109,16 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'browse_packs',
+    description: 'Browse available skill packs from the community registry. Shows what packs can be installed with install_pack. Use this when the user asks what skills or packs are available, or when you want to suggest relevant packs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Optional search term to filter packs (matches name, description, categories)' },
+      },
+    },
+  },
+  {
     name: 'install_pack',
     description: 'Install a skill pack from the community registry or a direct URL. Downloads, validates, and deduplicates skills.',
     inputSchema: {
@@ -190,6 +200,7 @@ export async function handleToolCall(name, args, deps) {
     case 'skill_status':  return handleSkillStatus(args, store);
     case 'validate_skill': return handleValidateSkill(args);
     case 'create_skill':  return handleCreateSkill(args, store);
+    case 'browse_packs':  return handleBrowsePacks(args, config);
     case 'install_pack':  return handleInstallPack(args, store, config, deps.packFetcher);
     case 'export_pack':   return handleExportPack(args, store, config);
     case 'fetch_page':    return handleFetchPage(args);
@@ -451,6 +462,55 @@ async function handleCreateSkill(args, store) {
   await store.rebuild();
 
   return { created: true, skill: skillName };
+}
+
+/**
+ * browse_packs — fetch the community pack index and return available packs
+ */
+async function handleBrowsePacks(args, config) {
+  const { query } = args;
+  const repo = config.skillsRepo ?? 'penumbraforge/mcp-librarian-skills';
+  const url = `https://raw.githubusercontent.com/${repo}/main/index.json`;
+
+  let body;
+  try {
+    body = await fetchUrl(url);
+  } catch {
+    throw new McpError(
+      ERROR_CODES.PACK_FETCH_FAILED,
+      `Could not fetch pack index from ${url}. The community registry may be unavailable.`,
+      { url }
+    );
+  }
+
+  let index;
+  try {
+    index = JSON.parse(body);
+  } catch {
+    throw new McpError(ERROR_CODES.PACK_FETCH_FAILED, 'Pack index is not valid JSON', { url });
+  }
+
+  let packs = index.packs ?? [];
+
+  // Filter by query if provided
+  if (query && typeof query === 'string' && query.trim()) {
+    const q = query.toLowerCase();
+    packs = packs.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q) ||
+      (p.categories || []).some(c => c.toLowerCase().includes(q))
+    );
+  }
+
+  return {
+    total: packs.length,
+    packs: packs.map(p => ({
+      name: p.name,
+      description: p.description,
+      categories: p.categories,
+      install: `install_pack({ pack: "${p.name}" })`,
+    })),
+  };
 }
 
 /**
