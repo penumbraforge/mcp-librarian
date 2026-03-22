@@ -1,28 +1,35 @@
 {
   "name": "mcp-librarian",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Intelligent MCP skills server — BM25 search, progressive disclosure, Ed25519 integrity",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
   },
   "bin": {
-    "mcp-librarian": "./bin/mcp-librarian.js",
+    "mcp-librarian": "./bin/cli.js",
     "mcp-librarian-stdio": "./bin/mcp-librarian-stdio.js"
   },
+  "files": [
+    "bin/",
+    "config/",
+    "src/",
+    "skills/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "start": "node bin/mcp-librarian.js",
+    "start": "node bin/cli.js start",
     "test": "node --test test/test-*.js",
-    "install": "bash bin/install.sh",
-    "uninstall": "bash bin/uninstall.sh"
+    "setup": "node bin/cli.js setup"
   },
-  "keywords": ["mcp", "skills", "librarian", "bm25", "security"],
+  "keywords": ["mcp", "skills", "librarian", "bm25", "security", "ed25519", "claude"],
   "author": "Penumbra Forge <hello@penumbraforge.com> (https://penumbraforge.com)",
   "license": "MIT",
   "homepage": "https://penumbraforge.com/librarian",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rngdz/mcp-librarian.git"
+    "url": "https://github.com/penumbraforge/mcp-librarian.git"
   },
   "dependencies": {}
 }
