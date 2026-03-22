@@ -11,10 +11,13 @@
     "mcp-librarian-stdio": "./bin/mcp-librarian-stdio.js"
   },
   "files": [
-    "bin/",
+    "bin/cli.js",
+    "bin/mcp-librarian.js",
+    "bin/mcp-librarian-stdio.js",
     "config/",
     "src/",
     "skills/",
+    "!skills/manifest.json",
     "LICENSE",
     "README.md"
   ],
