@@ -1,0 +1,14 @@
+[Unit]
+Description=MCP Librarian skills server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__NODE_PATH__ __CLI_PATH__ start
+WorkingDirectory=__LIB_DIR__
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
