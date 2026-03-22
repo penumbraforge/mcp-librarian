@@ -14,10 +14,10 @@ import { connect } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getLibDir, getSocketPath } from '../src/cli/paths.js';
 
-const LIB_DIR = join(homedir(), '.mcp-librarian');
-const SOCKET_PATH = join(LIB_DIR, 'librarian.sock');
+const LIB_DIR = getLibDir();
+const SOCKET_PATH = getSocketPath();
 const SECRET_PATH = join(LIB_DIR, 'client.secret');
 
 const HEADER_SIZE = 4;

@@ -23,6 +23,9 @@ export class Librarian {
       opts.publicKey,
       opts.privateKey
     );
+    if (opts.manifestPath) {
+      this.integrity.manifestPath = opts.manifestPath;
+    }
     this.staging = new StagingArea(opts.stagingDir, opts.skillsDir);
     this.timer = null;
     this.lastRun = null;

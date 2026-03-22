@@ -5,7 +5,7 @@
  * Loads skills, builds BM25 index, starts UDS server, runs librarian.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -37,8 +37,9 @@ const PROJECT_ROOT = join(__dirname, '..');
 // Paths
 const LIB_DIR = join(homedir(), '.mcp-librarian');
 const SOCKET_PATH = join(LIB_DIR, 'librarian.sock');
-const SKILLS_DIR = join(PROJECT_ROOT, 'skills');
-const STAGING_DIR = join(PROJECT_ROOT, 'staging');
+const SKILLS_DIR = join(LIB_DIR, 'skills');
+const STAGING_DIR = join(LIB_DIR, 'staging');
+const PID_PATH = join(LIB_DIR, 'librarian.pid');
 
 // Config
 let config = {};
@@ -51,16 +52,18 @@ if (existsSync(configPath)) {
 function loadSecret(name) {
   const path = join(LIB_DIR, name);
   if (!existsSync(path)) {
-    console.error(`[mcp-librarian] Missing ${path} — run bin/install.sh first`);
+    console.error(`[mcp-librarian] Missing ${path} — run \`mcp-librarian setup\` first`);
     process.exit(1);
   }
   return readFileSync(path, 'utf8').trim();
 }
 
 async function main() {
+  const pkg = JSON.parse(readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf8'));
+
   console.log('');
   console.log('  \x1b[2m┌─────────────────────────────────────┐\x1b[0m');
-  console.log('  \x1b[2m│\x1b[0m  \x1b[1mmcp-librarian\x1b[0m \x1b[2mv2.0.0\x1b[0m              \x1b[2m│\x1b[0m');
+  console.log(`  \x1b[2m│\x1b[0m  \x1b[1mmcp-librarian\x1b[0m \x1b[2mv${pkg.version}\x1b[0m              \x1b[2m│\x1b[0m`);
   console.log('  \x1b[2m│\x1b[0m  \x1b[36mby Penumbra Forge\x1b[0m                 \x1b[2m│\x1b[0m');
   console.log('  \x1b[2m│\x1b[0m  \x1b[2mpenumbraforge.com/librarian\x1b[0m        \x1b[2m│\x1b[0m');
   console.log('  \x1b[2m│\x1b[0m  \x1b[2mMIT License\x1b[0m                        \x1b[2m│\x1b[0m');
@@ -87,8 +90,26 @@ async function main() {
     auditSecret
   );
 
+  // Build skill directories: user skills + pack skills
+  const skillDirs = [SKILLS_DIR];
+  const packsDir = join(LIB_DIR, 'packs');
+  if (existsSync(packsDir)) {
+    const packEntries = readdirSync(packsDir, { withFileTypes: true });
+    for (const entry of packEntries) {
+      if (entry.isDirectory()) {
+        const packSkills = join(packsDir, entry.name, 'skills');
+        if (existsSync(packSkills)) skillDirs.push(packSkills);
+      }
+    }
+  }
+
+  const MANIFEST_PATH = join(LIB_DIR, 'manifest.json');
+
   // Skill store
-  const store = new SkillStore(SKILLS_DIR, { publicKey });
+  const store = new SkillStore(skillDirs, {
+    publicKey,
+    manifestPath: MANIFEST_PATH,
+  });
   const loaded = store.loadAll();
   console.log(`[mcp-librarian] Loaded ${loaded} skills, ${store.bm25.documentCount} indexed chunks`);
 
@@ -100,6 +121,7 @@ async function main() {
     auditLog,
     publicKey,
     privateKey,
+    manifestPath: MANIFEST_PATH,
   });
 
   // Protocol + tools
@@ -162,6 +184,7 @@ async function main() {
   });
 
   await server.start();
+  writeFileSync(PID_PATH, String(process.pid), { mode: 0o644 });
   console.log(`[mcp-librarian] Listening on ${SOCKET_PATH}`);
 
   // Start librarian
@@ -171,6 +194,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async (signal) => {
     console.log(`\n[mcp-librarian] ${signal} received, shutting down...`);
+    try { unlinkSync(PID_PATH); } catch {}
     librarian.stop();
     await server.stop();
     process.exit(0);

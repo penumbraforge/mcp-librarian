@@ -7,8 +7,11 @@ import { sha256, verifySignature } from '../security/ed25519.js';
 import { validatePath, sanitizeSkillName } from '../security/path-guard.js';
 
 export class SkillStore {
-  constructor(skillsDir, opts = {}) {
-    this.skillsDir = skillsDir;
+  constructor(skillsDirs, opts = {}) {
+    this.skillsDirs = Array.isArray(skillsDirs) ? skillsDirs : [skillsDirs];
+    // Backward compat: expose first dir as skillsDir
+    this.skillsDir = this.skillsDirs[0];
+    this.manifestPath = opts.manifestPath || null;
     this.publicKey = opts.publicKey || null;
     this.cache = new LRUCache({ maxSize: opts.cacheMaxSize ?? 100, ttlMs: opts.cacheTtl ?? 600_000 });
     this.bm25 = new BM25();
@@ -17,7 +20,7 @@ export class SkillStore {
   }
 
   loadManifest() {
-    const manifestPath = join(this.skillsDir, 'manifest.json');
+    const manifestPath = this.manifestPath || join(this.skillsDirs[0], 'manifest.json');
     if (existsSync(manifestPath)) {
       this.manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     } else {
@@ -30,23 +33,28 @@ export class SkillStore {
     this.cache.clear();
     this.loadManifest();
 
-    const entries = readdirSync(this.skillsDir, { withFileTypes: true });
     const allSections = [];
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillPath = join(this.skillsDir, entry.name, 'SKILL.md');
-      if (!existsSync(skillPath)) continue;
+    for (const skillsDir of this.skillsDirs) {
+      if (!existsSync(skillsDir)) continue;
+      const entries = readdirSync(skillsDir, { withFileTypes: true });
 
-      try {
-        const name = sanitizeSkillName(entry.name);
-        const content = readFileSync(skillPath, 'utf8');
-        const parsed = parseSkill(content, name);
-        parsed._raw = content;
-        this.skills.set(name, parsed);
-        allSections.push(...parsed.sections);
-      } catch (e) {
-        console.error(`[skill-store] Failed to load ${entry.name}: ${e.message}`);
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillPath = join(skillsDir, entry.name, 'SKILL.md');
+        if (!existsSync(skillPath)) continue;
+
+        try {
+          const name = sanitizeSkillName(entry.name);
+          if (this.skills.has(name)) continue; // first dir wins
+          const content = readFileSync(skillPath, 'utf8');
+          const parsed = parseSkill(content, name);
+          parsed._raw = content;
+          this.skills.set(name, parsed);
+          allSections.push(...parsed.sections);
+        } catch (e) {
+          console.error(`[skill-store] Failed to load ${entry.name}: ${e.message}`);
+        }
       }
     }
 
@@ -87,7 +95,7 @@ export class SkillStore {
       throw new Error(`Skill '${safeName}' integrity check failed: ${verification.reason || 'hash mismatch'}`);
     }
     if (verification.status === 'UNSIGNED') {
-      throw new Error(`Skill '${safeName}' is unsigned — run install.sh to sign all skills`);
+      throw new Error(`Skill '${safeName}' is unsigned — run \`mcp-librarian setup\` to sign all skills`);
     }
 
     this.cache.set(`skill:${safeName}`, parsed);
