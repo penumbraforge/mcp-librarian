@@ -36,3 +36,52 @@ describe('paths', () => {
     assert.ok(result.endsWith('/skills') || result.endsWith('\\skills'));
   });
 });
+
+describe('CLI parser', () => {
+  it('parses setup command', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['setup']);
+    assert.equal(result.command, 'setup');
+    assert.deepEqual(result.flags, {});
+  });
+
+  it('parses setup with flags', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['setup', '--dry-run', '--skip-clients']);
+    assert.equal(result.command, 'setup');
+    assert.equal(result.flags['dry-run'], true);
+    assert.equal(result.flags['skip-clients'], true);
+  });
+
+  it('parses setup --only with value', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['setup', '--only', 'claude-code']);
+    assert.equal(result.flags.only, 'claude-code');
+  });
+
+  it('parses install-pack with positional arg', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['install-pack', 'penumbraforge/starter']);
+    assert.equal(result.command, 'install-pack');
+    assert.deepEqual(result.args, ['penumbraforge/starter']);
+  });
+
+  it('parses start command', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['start']);
+    assert.equal(result.command, 'start');
+  });
+
+  it('defaults to help with no args', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs([]);
+    assert.equal(result.command, 'help');
+  });
+
+  it('parses uninstall --yes', async () => {
+    const { parseArgs } = await import('../src/cli/parse-args.js');
+    const result = parseArgs(['uninstall', '--yes']);
+    assert.equal(result.command, 'uninstall');
+    assert.equal(result.flags.yes, true);
+  });
+});
