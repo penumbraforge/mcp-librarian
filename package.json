@@ -7,8 +7,8 @@
     "node": ">=22.0.0"
   },
   "bin": {
-    "mcp-librarian": "./bin/cli.js",
-    "mcp-librarian-stdio": "./bin/mcp-librarian-stdio.js"
+    "mcp-librarian": "bin/cli.js",
+    "mcp-librarian-stdio": "bin/mcp-librarian-stdio.js"
   },
   "files": [
     "bin/cli.js",
@@ -26,13 +26,21 @@
     "test": "node --test test/test-*.js",
     "setup": "node bin/cli.js setup"
   },
-  "keywords": ["mcp", "skills", "librarian", "bm25", "security", "ed25519", "claude"],
+  "keywords": [
+    "mcp",
+    "skills",
+    "librarian",
+    "bm25",
+    "security",
+    "ed25519",
+    "claude"
+  ],
   "author": "Penumbra Forge <hello@penumbraforge.com> (https://penumbraforge.com)",
   "license": "MIT",
   "homepage": "https://penumbraforge.com/librarian",
   "repository": {
     "type": "git",
-    "url": "https://github.com/penumbraforge/mcp-librarian.git"
+    "url": "git+https://github.com/penumbraforge/mcp-librarian.git"
   },
   "dependencies": {}
 }
