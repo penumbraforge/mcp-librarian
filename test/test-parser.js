@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSkill, extractSectionHeadings } from '../src/store/parser.js';
+import { validateSkill } from '../src/librarian/validator.js';
 
 describe('Parser', () => {
   const sample = `---
@@ -153,5 +154,34 @@ description: "Test"
 Content.`;
     const result = parseSkill(content, 'test');
     assert.strictEqual(result.frontmatter.enabled, undefined);
+  });
+});
+
+describe('validator sources field', () => {
+  it('accepts valid sources array', () => {
+    const parsed = {
+      frontmatter: { name: 'test', description: 'Test', sources: ['https://owasp.org'] },
+      sections: [{ heading: 'Test', body: 'content', skill: 'test' }],
+    };
+    const result = validateSkill(parsed);
+    assert.ok(result.valid);
+  });
+
+  it('rejects non-array sources', () => {
+    const parsed = {
+      frontmatter: { name: 'test', description: 'Test', sources: 'not an array' },
+      sections: [{ heading: 'Test', body: 'content', skill: 'test' }],
+    };
+    const result = validateSkill(parsed);
+    assert.ok(result.issues.some(i => i.message.includes('sources')));
+  });
+
+  it('rejects sources with more than 20 entries', () => {
+    const parsed = {
+      frontmatter: { name: 'test', description: 'Test', sources: Array(21).fill('https://example.com') },
+      sections: [{ heading: 'Test', body: 'content', skill: 'test' }],
+    };
+    const result = validateSkill(parsed);
+    assert.ok(result.issues.some(i => i.message.includes('20')));
   });
 });

@@ -51,6 +51,24 @@ export function validateSkill(parsed) {
     issues.push({ severity: 'warning', message: `Unknown domain "${parsed.frontmatter.domain}". Valid: ${VALID_DOMAINS.join(', ')}` });
   }
 
+  // Validate sources if present
+  if (parsed.frontmatter?.sources !== undefined) {
+    const sources = parsed.frontmatter.sources;
+    if (!Array.isArray(sources)) {
+      issues.push({ severity: 'warning', message: 'Frontmatter sources must be an array of URL strings' });
+    } else {
+      if (sources.length > 20) {
+        issues.push({ severity: 'warning', message: `Too many sources: ${sources.length} (max 20)` });
+      }
+      for (const s of sources) {
+        if (typeof s !== 'string') {
+          issues.push({ severity: 'warning', message: 'Each source must be a string' });
+          break;
+        }
+      }
+    }
+  }
+
   // Check sections
   const sections = parsed.sections.filter(s => s.heading !== '_preamble');
   if (sections.length === 0) {
