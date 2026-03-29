@@ -117,7 +117,8 @@ export async function draftSkill(topic, existingSkills) {
 Existing skills for context: ${existingSkills.join(', ')}
 
 Requirements:
-- YAML frontmatter with name and description
+- YAML frontmatter with name, description, domain, version
+- Include a sources field with comma-separated authoritative URLs you referenced, e.g.: sources: "https://docs.example.com, https://rfc-editor.org/..."
 - 3-8 sections with ## headings
 - Each section: 50-300 tokens, self-contained, practical
 - Focus on patterns and examples, not theory
