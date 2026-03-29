@@ -36,7 +36,7 @@
     "claude"
   ],
   "author": "Penumbra Forge <hello@penumbraforge.com> (https://penumbraforge.com)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://penumbraforge.com/librarian",
   "repository": {
     "type": "git",

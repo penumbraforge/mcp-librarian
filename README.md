@@ -272,4 +272,4 @@ Covers: HMAC auth, BM25 search + stemming + chunking, content guard (prose extra
 
 ## License
 
-MIT — [Penumbra Forge](https://penumbraforge.com)
+Apache 2.0 — [Penumbra Forge](https://penumbraforge.com)
