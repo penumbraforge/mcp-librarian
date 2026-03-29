@@ -52,9 +52,15 @@ export class IntegrityEngine {
   }
 
   signAll(skillContents) {
+    const existing = this.loadManifest();
     const manifest = { skills: {}, signedAt: new Date().toISOString() };
     for (const [name, content] of Object.entries(skillContents)) {
       manifest.skills[name] = this.signSkill(name, content);
+      // Preserve quality scores if content hash unchanged
+      if (existing.skills?.[name]?.quality &&
+          existing.skills[name].sha256 === manifest.skills[name].sha256) {
+        manifest.skills[name].quality = existing.skills[name].quality;
+      }
     }
     this.saveManifest(manifest);
     return manifest;
