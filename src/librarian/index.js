@@ -104,6 +104,9 @@ export class Librarian {
         this.store.loadAll();
       }
 
+      // Async LLM scoring upgrade (non-blocking, best-effort)
+      this._runLLMScoring(skills, updatedManifest).catch(() => {});
+
       this.lastRun = new Date().toISOString();
       this.auditLog?.log({
         event: 'maintenance',
@@ -204,5 +207,43 @@ export class Librarian {
       indexedChunks: this.store.bm25.documentCount,
       expertiseSummary: this.store.buildExpertiseSummary(),
     };
+  }
+
+  async _runLLMScoring(skills, manifest) {
+    const needsLLM = [];
+    for (const [name, { content, parsed }] of Object.entries(skills)) {
+      const entry = manifest.skills?.[name];
+      if (entry?.quality?.scored_by === 'heuristic') {
+        needsLLM.push({ name, content, description: parsed.frontmatter?.description });
+      }
+    }
+    if (needsLLM.length === 0) return;
+
+    for (let i = 0; i < needsLLM.length; i += 5) {
+      const batch = needsLLM.slice(i, i + 5);
+      const scores = await ai.scoreSkillsWithLLM(batch);
+      if (!scores) continue;
+
+      const reloadManifest = this.integrity.loadManifest();
+      for (const s of scores) {
+        const entry = reloadManifest.skills?.[s.id];
+        if (!entry?.quality) continue;
+        const spec = parseFloat(s.specificity);
+        const ex = parseFloat(s.examples);
+        const act = parseFloat(s.actionability);
+        if ([spec, ex, act].some(v => isNaN(v) || v < 0 || v > 1)) continue;
+
+        const srcRep = entry.quality.source_reputation ?? 0.5;
+        entry.quality.specificity = spec;
+        entry.quality.examples = ex;
+        entry.quality.actionability = act;
+        entry.quality.score = Math.round((0.7 * (spec + ex + act) / 3 + 0.3 * srcRep) * 10000) / 10000;
+        entry.quality.scored_by = 'llm';
+        entry.quality.scored_at = new Date().toISOString();
+      }
+      this.integrity.saveManifest(reloadManifest);
+    }
+
+    this.store.loadAll();
   }
 }

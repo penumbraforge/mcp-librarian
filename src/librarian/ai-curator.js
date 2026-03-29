@@ -139,3 +139,49 @@ Identify:
 
   return callOllama(prompt);
 }
+
+const QUALITY_SYSTEM = `You are a knowledge quality reviewer. Score each skill on three dimensions (0.0 to 1.0):
+- specificity: concrete APIs, parameters, patterns (1.0) vs vague generalities (0.0)
+- examples: rich code snippets and usage examples (1.0) vs no examples (0.0)
+- actionability: copy-paste ready (1.0) vs pure background/theory (0.0)
+
+Respond with JSON only:
+{"scores": [{"id": "skill_name", "specificity": 0.8, "examples": 0.6, "actionability": 0.9}]}`;
+
+export async function scoreSkillsWithLLM(skills) {
+  const simplified = skills.map(s => ({
+    id: s.name,
+    description: s.description?.slice(0, 100) || '',
+    sample: s.content?.slice(0, 500) || '',
+  }));
+
+  const prompt = `Score the following skills:\n\n${JSON.stringify(simplified, null, 2)}`;
+
+  try {
+    const resp = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({
+        model: DEFAULT_MODEL,
+        prompt,
+        system: QUALITY_SYSTEM,
+        stream: false,
+        options: { temperature: 0.1, num_predict: 1024 },
+      }),
+    });
+
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    let output = sanitizeAIOutput(data.response || '');
+    output = output.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+
+    const parsed = JSON.parse(output);
+    if (parsed?.scores && Array.isArray(parsed.scores)) {
+      return parsed.scores;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
