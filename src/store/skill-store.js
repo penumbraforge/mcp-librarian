@@ -51,6 +51,10 @@ export class SkillStore {
           const parsed = parseSkill(content, name);
           parsed._raw = content;
           this.skills.set(name, parsed);
+          const qualityScore = this.manifest?.skills?.[name]?.quality?.score ?? 0.5;
+          for (const section of parsed.sections) {
+            section.quality = qualityScore;
+          }
           allSections.push(...parsed.sections);
         } catch (e) {
           console.error(`[skill-store] Failed to load ${entry.name}: ${e.message}`);

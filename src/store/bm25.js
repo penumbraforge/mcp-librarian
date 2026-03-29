@@ -80,7 +80,7 @@ function tokenize(text) {
  * Each chunk inherits the parent ## heading as context.
  */
 function chunkSection(section) {
-  const { heading, body, skill } = section;
+  const { heading, body, skill, quality } = section;
 
   // Split on ### sub-headings
   const parts = body.split(/^(?=### )/m);
@@ -110,6 +110,7 @@ function chunkSection(section) {
             body: buf.trim(),
             skill,
             parentHeading: heading,
+            quality: quality,
           });
           buf = '';
         }
@@ -121,6 +122,7 @@ function chunkSection(section) {
           body: buf.trim(),
           skill,
           parentHeading: heading,
+          quality: quality,
         });
       }
     } else if (chunkBody) {
@@ -129,6 +131,7 @@ function chunkSection(section) {
         body: chunkBody,
         skill,
         parentHeading: heading,
+        quality: quality,
       });
     }
   }
@@ -202,6 +205,16 @@ export class BM25 {
       if (score > 0) {
         scores.push({ score, meta: doc.meta });
       }
+    }
+
+    if (scores.length === 0) return [];
+
+    // Normalize BM25 scores to 0-1 range
+    const maxBM25 = Math.max(...scores.map(s => s.score));
+    for (const entry of scores) {
+      const normalizedBM25 = entry.score / maxBM25;
+      const quality = entry.meta.quality ?? 0.5;
+      entry.score = normalizedBM25 * 0.6 + quality * 0.4;
     }
 
     scores.sort((a, b) => b.score - a.score);
