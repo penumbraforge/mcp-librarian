@@ -55,7 +55,9 @@ export class SkillStore {
           for (const section of parsed.sections) {
             section.quality = qualityScore;
           }
-          allSections.push(...parsed.sections);
+          if (parsed.frontmatter.enabled !== false) {
+            allSections.push(...parsed.sections);
+          }
         } catch (e) {
           console.error(`[skill-store] Failed to load ${entry.name}: ${e.message}`);
         }
@@ -129,15 +131,31 @@ export class SkillStore {
         domain: parsed.frontmatter.domain || 'general',
         sections: extractSectionHeadings(parsed),
         status: this.verifySkill(name).status,
+        enabled: parsed.frontmatter.enabled !== false,
+        quality: parsed.frontmatter.quality ?? null,
       });
     }
     return result;
   }
 
+  buildExpertiseSummary() {
+    const enabled = this.listSkills().filter(s => s.enabled);
+    if (enabled.length === 0) return '';
+    const lines = ['KNOWLEDGE AVAILABLE:', ''];
+    for (const s of enabled) {
+      const sectionCount = s.sections.length;
+      lines.push(`- [${s.domain}] ${s.name}: ${s.description} (${sectionCount} sections)`);
+    }
+    lines.push('', 'Use find_skill("query") to retrieve specific knowledge.');
+    return lines.join('\n');
+  }
+
   rebuildIndex() {
     const allSections = [];
     for (const parsed of this.skills.values()) {
-      allSections.push(...parsed.sections);
+      if (parsed.frontmatter.enabled !== false) {
+        allSections.push(...parsed.sections);
+      }
     }
     this.bm25.index(allSections);
   }
