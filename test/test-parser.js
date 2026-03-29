@@ -75,3 +75,83 @@ Content.
     assert.equal(({}).polluted, undefined);
   });
 });
+
+describe('sources parsing', () => {
+  it('parses comma-separated sources into array', () => {
+    const content = `---
+name: test
+description: "Test skill"
+sources: "https://owasp.org, https://portswigger.net"
+---
+
+## Section
+Content here.`;
+    const result = parseSkill(content, 'test');
+    assert.deepEqual(result.frontmatter.sources, ['https://owasp.org', 'https://portswigger.net']);
+  });
+
+  it('handles single source', () => {
+    const content = `---
+name: test
+description: "Test"
+sources: "https://owasp.org"
+---
+
+## Section
+Content.`;
+    const result = parseSkill(content, 'test');
+    assert.deepEqual(result.frontmatter.sources, ['https://owasp.org']);
+  });
+
+  it('handles missing sources gracefully', () => {
+    const content = `---
+name: test
+description: "Test"
+---
+
+## Section
+Content.`;
+    const result = parseSkill(content, 'test');
+    assert.equal(result.frontmatter.sources, undefined);
+  });
+});
+
+describe('enabled parsing', () => {
+  it('parses enabled: true as boolean true', () => {
+    const content = `---
+name: test
+description: "Test"
+enabled: true
+---
+
+## Section
+Content.`;
+    const result = parseSkill(content, 'test');
+    assert.strictEqual(result.frontmatter.enabled, true);
+  });
+
+  it('parses enabled: false as boolean false', () => {
+    const content = `---
+name: test
+description: "Test"
+enabled: false
+---
+
+## Section
+Content.`;
+    const result = parseSkill(content, 'test');
+    assert.strictEqual(result.frontmatter.enabled, false);
+  });
+
+  it('defaults to undefined when absent', () => {
+    const content = `---
+name: test
+description: "Test"
+---
+
+## Section
+Content.`;
+    const result = parseSkill(content, 'test');
+    assert.strictEqual(result.frontmatter.enabled, undefined);
+  });
+});

@@ -56,7 +56,14 @@ function parseSimpleYaml(text) {
           (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
-      result[key] = val;
+      // Type coercion for known fields
+      if (key === 'sources') {
+        result[key] = val.split(',').map(s => s.trim()).filter(Boolean);
+      } else if (key === 'enabled') {
+        result[key] = val !== 'false';
+      } else {
+        result[key] = val;
+      }
     }
   }
   return result;
