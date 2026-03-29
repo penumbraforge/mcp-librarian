@@ -9,6 +9,7 @@ import { checkStaleness } from './staleness.js';
 import { IntegrityEngine } from './integrity.js';
 import { StagingArea } from './staging.js';
 import * as ai from './ai-curator.js';
+import { scoreSkill } from '../store/quality-scorer.js';
 
 const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 
@@ -76,6 +77,32 @@ export class Librarian {
 
       // Rebuild store index
       this.store.loadAll();
+
+      // Heuristic quality scoring pass
+      const updatedManifest = this.integrity.loadManifest();
+      let scoredCount = 0;
+      for (const [name, { content, parsed }] of Object.entries(skills)) {
+        const entry = updatedManifest.skills?.[name];
+        if (!entry) continue;
+
+        // Skip if already scored and content unchanged
+        if (entry.quality && entry.quality._forHash === entry.sha256) continue;
+
+        const sources = parsed.frontmatter?.sources || [];
+        const detailed = scoreSkill(content, sources, { detailed: true });
+        entry.quality = {
+          ...detailed,
+          scored_by: 'heuristic',
+          scored_at: new Date().toISOString(),
+          _forHash: entry.sha256,
+        };
+        scoredCount++;
+      }
+      if (scoredCount > 0) {
+        this.integrity.saveManifest(updatedManifest);
+        // Reload store to pick up new quality scores
+        this.store.loadAll();
+      }
 
       this.lastRun = new Date().toISOString();
       this.auditLog?.log({
