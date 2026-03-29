@@ -175,6 +175,7 @@ export class Librarian {
       staging: this.staging.list(),
       skillCount: this.store.skills.size,
       indexedChunks: this.store.bm25.documentCount,
+      expertiseSummary: this.store.buildExpertiseSummary(),
     };
   }
 }

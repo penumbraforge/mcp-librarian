@@ -13,6 +13,10 @@ export const definition = {
 
 export function handler(librarian) {
   return () => {
-    return librarian.getStatus();
+    const status = librarian.getStatus();
+    if (status.expertiseSummary) {
+      status.expertiseSummaryText = status.expertiseSummary;
+    }
+    return status;
   };
 }
