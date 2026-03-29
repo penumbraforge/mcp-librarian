@@ -61,7 +61,8 @@ export function handler(store) {
       const sectionRef = r.meta.parentHeading || r.meta.heading;
 
       lines.push(`### [${domain}] ${r.meta.skill} → ${r.meta.heading}`);
-      lines.push(`_Relevance: ${Math.round(r.score * 100) / 100}_\n`);
+      const quality = r.meta.quality ?? 0.5;
+      lines.push(`_Relevance: ${Math.round(r.score * 100) / 100} | Quality: ${Math.round(quality * 100) / 100}_\n`);
 
       // Truncate body to ~300 tokens
       let body = r.meta.body;

@@ -19,9 +19,10 @@ export function handler(store) {
     const lines = [`## Skill Library (${skills.length} skills)\n`];
 
     for (const s of skills) {
-      const parsed = store.skills.get(s.name);
-      const domain = parsed?.frontmatter?.domain || 'general';
-      lines.push(`- **[${domain}] ${s.name}**: ${s.description}`);
+      const domain = s.domain || 'general';
+      const disabledTag = s.enabled === false ? ' [disabled]' : '';
+      const qualityTag = s.quality != null ? ` (q:${Math.round(s.quality * 100) / 100})` : '';
+      lines.push(`- **[${domain}] ${s.name}**${disabledTag}${qualityTag}: ${s.description}`);
       if (s.sections.length > 0) {
         lines.push(`  Sections: ${s.sections.join(', ')}`);
       }
