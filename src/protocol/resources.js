@@ -72,8 +72,9 @@ export async function readResource(uri, store) {
       );
     }
   } else {
-    // Section content — getSection is synchronous but may return null for missing skill
-    // First verify the skill exists to give an accurate error
+    // Section content — getSection reads through getSkill (disk fallback),
+    // so it survives cache eviction. Verify the skill exists first for a
+    // precise error.
     const skillExists = await store.getSkill(skillName);
     if (skillExists === null || skillExists === undefined) {
       throw new McpError(
@@ -83,7 +84,7 @@ export async function readResource(uri, store) {
       );
     }
 
-    text = store.getSection(skillName, sectionSlug);
+    text = await store.getSection(skillName, sectionSlug);
     if (text === null || text === undefined) {
       throw new McpError(
         ERROR_CODES.SKILL_NOT_FOUND,

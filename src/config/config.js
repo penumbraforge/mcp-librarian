@@ -7,6 +7,19 @@ export const DEFAULTS = {
   cacheSize: 100,
   cacheTtl: 600000,
   skillsRepo: 'penumbraforge/mcp-librarian-skills',
+  // Opt-in web research. When false (default), find_and_load never reaches
+  // out to the network on a weak match — it returns found:false and suggests
+  // research_topic. Auto-fetching arbitrary web pages and funneling them into
+  // skill creation is a prompt-injection surface; it should be a deliberate
+  // choice, not a silent default.
+  autoResearch: false,
+  // Quality-weighted retrieval: blend BM25 relevance with a heuristic skill
+  // quality score. Off → pure BM25 (bit-identical to legacy behavior).
+  qualityWeighting: true,
+  qualityWeight: 0.4,
+  // Allow install_pack to fetch pack.json from non-raw.githubusercontent.com
+  // URLs (sent without credentials). Off by default.
+  allowArbitraryPackUrls: false,
 };
 
 const VALID_LOG_LEVELS = ['debug', 'info', 'warning', 'error'];
@@ -86,6 +99,24 @@ export async function loadConfig(home) {
   const envSkillsRepo = process.env.MCP_LIBRARIAN_SKILLS_REPO;
   if (envSkillsRepo !== undefined) {
     merged.skillsRepo = envSkillsRepo;
+  }
+
+  // --- autoResearch (env override: "1"/"true" enables) ---
+  const envAutoResearch = process.env.MCP_LIBRARIAN_AUTO_RESEARCH;
+  if (envAutoResearch !== undefined) {
+    merged.autoResearch = envAutoResearch === '1' || envAutoResearch.toLowerCase() === 'true';
+  }
+
+  // --- qualityWeight (0..1) ---
+  const envQualityWeight = process.env.MCP_LIBRARIAN_QUALITY_WEIGHT;
+  if (envQualityWeight !== undefined) {
+    const parsed = Number(envQualityWeight);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
+      merged.qualityWeight = parsed;
+    } else {
+      warnings.push(`Invalid MCP_LIBRARIAN_QUALITY_WEIGHT "${envQualityWeight}"; using ${DEFAULTS.qualityWeight}`);
+      merged.qualityWeight = DEFAULTS.qualityWeight;
+    }
   }
 
   return {

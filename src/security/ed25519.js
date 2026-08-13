@@ -165,3 +165,25 @@ export async function signAllSkills(config) {
 
   await saveManifest(manifestPath, manifest);
 }
+
+/**
+ * Sign all skills if a private key exists at ~/.mcp-librarian/keys/private.pem;
+ * otherwise no-op. This is what makes signing actually happen at runtime:
+ * create_skill and install_pack call it so newly written skills become
+ * VERIFIED instead of sitting UNSIGNED until someone runs `sign` by hand.
+ *
+ * @param {{ home: string }} config
+ * @returns {Promise<boolean>} true if signing ran, false if no key present
+ */
+export async function signIfKeyPresent(config) {
+  if (!config || typeof config.home !== 'string') return false;
+  const privateKeyPath = join(config.home, 'keys', 'private.pem');
+  let privateKey;
+  try {
+    privateKey = await readFile(privateKeyPath, 'utf8');
+  } catch {
+    return false; // No key configured — signing is optional, stay silent.
+  }
+  await signAllSkills({ ...config, privateKey });
+  return true;
+}

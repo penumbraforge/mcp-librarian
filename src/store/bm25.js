@@ -145,10 +145,19 @@ export class BM25Index {
     const tokens = tokenize(content);
     const idx = this.#chunks.length;
 
-    this.#chunks.push({ skill, section, content, tokens });
+    // Precompute term frequencies once at index time. The search loop
+    // previously did chunk.tokens.filter(t => t === term).length per query
+    // term per matching chunk — a full O(n) rescan of the token array inside
+    // the hot loop. A TF map makes it an O(1) lookup.
+    const tf = new Map();
+    for (const t of tokens) {
+      tf.set(t, (tf.get(t) ?? 0) + 1);
+    }
+
+    this.#chunks.push({ skill, section, content, length: tokens.length, tf });
 
     // Track which terms appear in this document (for DF)
-    const seenTerms = new Set(tokens);
+    const seenTerms = tf.keys();
 
     for (const term of seenTerms) {
       // Update inverted index
@@ -174,7 +183,7 @@ export class BM25Index {
     if (N === 0) return [];
 
     // Compute average document length
-    const avgDL = this.#chunks.reduce((sum, c) => sum + c.tokens.length, 0) / N;
+    const avgDL = this.#chunks.reduce((sum, c) => sum + c.length, 0) / N;
 
     // Accumulate BM25 scores
     const scores = new Map(); // chunkIndex → score
@@ -190,10 +199,10 @@ export class BM25Index {
 
       for (const chunkIdx of matchingChunks) {
         const chunk = this.#chunks[chunkIdx];
-        const dl = chunk.tokens.length;
+        const dl = chunk.length;
 
-        // TF: count occurrences of term in chunk tokens
-        const tf = chunk.tokens.filter(t => t === term).length;
+        // TF: O(1) lookup from the precomputed map
+        const tf = chunk.tf.get(term) ?? 0;
 
         // BM25 TF component
         const tfComponent = (tf * (BM25_K1 + 1)) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgDL));

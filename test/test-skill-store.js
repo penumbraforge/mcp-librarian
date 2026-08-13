@@ -189,23 +189,50 @@ describe('SkillStore', () => {
     assert.equal(content1, content2, 'Cached content should match original');
   });
 
+  // Regression: progressive disclosure must survive LRU cache eviction.
+  // Before the fix, getSection/getSectionSlugs/listSkills read only from the
+  // TTL cache, so an idle server (past the TTL) returned SKILL_NOT_FOUND for
+  // existing skills and empty section lists. This uses a 1 ms TTL to force
+  // eviction between load and read.
+  it('progressive disclosure survives cache TTL expiry', async () => {
+    const evictStore = new SkillStore({ home: testDir, cacheSize: 50, cacheTtl: 1 });
+    await writeFile(join(skillsDir, 'test-skill.md'), SKILL_1);
+    await evictStore.load();
+
+    // Let the 1 ms TTL lapse.
+    await new Promise(r => setTimeout(r, 20));
+
+    // Section slugs come from the authoritative map — never empty.
+    const slugs = evictStore.getSectionSlugs('test-skill');
+    assert.ok(slugs.length > 0, 'section slugs must survive eviction');
+
+    // listSkills sections likewise.
+    const listed = evictStore.listSkills().find(s => s.name === 'test-skill');
+    assert.ok(listed.sections.length > 0, 'listSkills sections must survive eviction');
+
+    // getSection routes through getSkill's disk fallback — still resolves.
+    const section = await evictStore.getSection('test-skill', 'advanced-usage');
+    assert.ok(section && section.includes('advanced patterns'),
+      'getSection must resolve after the cache evicts');
+  });
+
   // 4. getSection() returns correct section content
   it('getSection() returns correct section by slug path', async () => {
     await writeFile(join(skillsDir, 'test-skill.md'), SKILL_1);
     await store.load();
 
     // ## Getting Started → ## / ### Installation
-    const installSection = store.getSection('test-skill', 'getting-started/installation');
+    const installSection = await store.getSection('test-skill', 'getting-started/installation');
     assert.ok(installSection, 'Should find getting-started/installation section');
     assert.ok(installSection.includes('install command'), 'Section should include installation text');
 
     // ## Getting Started → ## / ### Configuration
-    const configSection = store.getSection('test-skill', 'getting-started/configuration');
+    const configSection = await store.getSection('test-skill', 'getting-started/configuration');
     assert.ok(configSection, 'Should find getting-started/configuration section');
     assert.ok(configSection.includes('config file'), 'Section should include config text');
 
     // ## Advanced Usage (no sub-sections)
-    const advancedSection = store.getSection('test-skill', 'advanced-usage');
+    const advancedSection = await store.getSection('test-skill', 'advanced-usage');
     assert.ok(advancedSection, 'Should find advanced-usage section');
     assert.ok(advancedSection.includes('advanced patterns'), 'Section should include advanced text');
   });
@@ -397,7 +424,7 @@ describe('SkillStore', () => {
     await writeFile(join(skillsDir, 'test-skill.md'), SKILL_1);
     await store.load();
 
-    const result = store.getSection('test-skill', 'nonexistent-section');
+    const result = await store.getSection('test-skill', 'nonexistent-section');
     assert.equal(result, null, 'Should return null for unknown section');
   });
 

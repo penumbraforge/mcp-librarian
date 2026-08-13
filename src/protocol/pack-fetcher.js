@@ -11,17 +11,33 @@ import { get } from 'node:https';
 
 import { McpError, ERROR_CODES } from '../errors.js';
 
+// Hosts that may receive the user's GITHUB_TOKEN. Anything else gets an
+// anonymous request — install_pack accepts caller-supplied URLs, and a token
+// attached unconditionally is a one-call credential exfiltration primitive.
+const GITHUB_TOKEN_HOSTS = new Set([
+  'raw.githubusercontent.com',
+  'api.github.com',
+]);
+
+// Hosts a direct pack URL may point at (unless allowArbitraryPackUrls).
+const PACK_URL_HOSTS = new Set(['raw.githubusercontent.com']);
+
+// Hard ceiling on a fetched pack/skill body. Enforced while streaming —
+// buffering an unbounded body and truncating afterwards is an OOM vector.
+const MAX_FETCH_BYTES = 2 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // PackFetcher
 // ---------------------------------------------------------------------------
 
 export class PackFetcher {
   /**
-   * @param {{ skillsRepo: string }} config
+   * @param {{ skillsRepo: string, allowArbitraryPackUrls?: boolean }} config
    *   skillsRepo — e.g. "penumbraforge/mcp-librarian-skills"
    */
   constructor(config) {
     this._repo = config.skillsRepo;
+    this._allowArbitraryPackUrls = config.allowArbitraryPackUrls === true;
     this._baseUrl = null; // Set when using direct URL mode
   }
 
@@ -34,6 +50,8 @@ export class PackFetcher {
    * @returns {Promise<object>} Parsed JSON object
    */
   async fetchPackJson(packName, directUrl) {
+    if (directUrl) this._validateDirectUrl(directUrl);
+
     const url = directUrl || `https://raw.githubusercontent.com/${this._repo}/main/packs/${packName}/pack.json`;
 
     // Store the base URL so fetchSkillFile can resolve relative paths
@@ -71,16 +89,46 @@ export class PackFetcher {
   // ---------------------------------------------------------------------------
 
   /**
+   * Reject direct pack URLs that don't point at an allowlisted host.
+   * Escape hatch: config.allowArbitraryPackUrls (explicit user opt-in).
+   */
+  _validateDirectUrl(directUrl) {
+    let parsed;
+    try {
+      parsed = new URL(directUrl);
+    } catch {
+      throw new McpError(ERROR_CODES.INVALID_INPUT, `Invalid pack URL: ${directUrl}`);
+    }
+    if (this._allowArbitraryPackUrls) return;
+    if (parsed.protocol !== 'https:' || !PACK_URL_HOSTS.has(parsed.hostname)) {
+      throw new McpError(
+        ERROR_CODES.INVALID_INPUT,
+        `Pack URLs must point at ${[...PACK_URL_HOSTS].join(', ')} over https. ` +
+        `Set allowArbitraryPackUrls: true in config to override (the request will be sent without credentials).`,
+        { url: directUrl }
+      );
+    }
+  }
+
+  /**
    * Perform a GET request and return the response body as a string.
-   * Handles GitHub auth, timeouts, and status code errors.
+   * Handles GitHub auth (allowlisted hosts only), timeouts, size caps,
+   * and status code errors.
    *
    * @param {string} url
    * @returns {Promise<string>}
    */
   _fetch(url) {
     return new Promise((resolve, reject) => {
+      let hostname;
+      try {
+        hostname = new URL(url).hostname;
+      } catch {
+        return reject(new McpError(ERROR_CODES.PACK_FETCH_FAILED, `Invalid URL: ${url}`));
+      }
+
       const headers = { 'User-Agent': 'mcp-librarian/3.0.0' };
-      if (process.env.GITHUB_TOKEN) {
+      if (process.env.GITHUB_TOKEN && GITHUB_TOKEN_HOSTS.has(hostname)) {
         headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
       }
 
@@ -121,10 +169,24 @@ export class PackFetcher {
           ));
         }
 
-        // Collect response body
+        // Collect response body. Buffer.concat (not chunks.join) — joining
+        // Buffers stringifies each chunk separately and corrupts any
+        // multi-byte UTF-8 character that straddles a chunk boundary.
         const chunks = [];
-        res.on('data', chunk => chunks.push(chunk));
-        res.on('end', () => resolve(chunks.join('')));
+        let received = 0;
+        res.on('data', (chunk) => {
+          received += chunk.length;
+          if (received > MAX_FETCH_BYTES) {
+            req.destroy();
+            return reject(new McpError(
+              ERROR_CODES.PACK_FETCH_FAILED,
+              `Response exceeded ${MAX_FETCH_BYTES} bytes fetching: ${url}`,
+              { url, maxBytes: MAX_FETCH_BYTES }
+            ));
+          }
+          chunks.push(chunk);
+        });
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
         res.on('error', (err) => {
           reject(new McpError(
             ERROR_CODES.PACK_FETCH_FAILED,

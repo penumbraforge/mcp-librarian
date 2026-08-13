@@ -3,13 +3,13 @@
  * verification for skill markdown files.
  */
 
-import { readdir, readFile, writeFile, unlink, stat, realpath } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { readdir, readFile, writeFile, unlink, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import { BM25Index, parseSkillSections } from './bm25.js';
 import { LRUCache } from './lru-cache.js';
-import { McpError, ERROR_CODES } from '../errors.js';
 import { loadManifest, verifySkill } from '../security/ed25519.js';
+import { validateNewPath } from '../security/path-guard.js';
 
 // ---------------------------------------------------------------------------
 // Frontmatter parsing
@@ -195,15 +195,24 @@ export class SkillStore {
         signedAt = manifestEntry.signedAt ?? null;
       }
 
+      // Parse sections once at load. Store the slug list in the authoritative
+      // #skills map — NOT only in the LRU cache. The cache has a TTL and a
+      // size cap; anything that reads sections from it (getSection,
+      // getSectionSlugs, listSkills) silently returns empty after the cache
+      // evicts, which quietly disables progressive disclosure on an idle
+      // server. The map never expires.
+      const sections = parseSkillSections(skill.content);
+
       this.#skills.set(name, {
         filename: skill.filename,
         frontmatter: skill.frontmatter,
         integrity,
         hash,
         signedAt,
+        sectionSlugs: sections.map(s => s.section),
       });
 
-      // Pre-populate content cache so getSection works synchronously
+      // Pre-populate content cache as a hot-path optimization only.
       this.#cache.set(name, skill.content);
 
       // Index skill metadata (name, description, categories) for search
@@ -215,7 +224,6 @@ export class SkillStore {
       this.#index.add(name, '_metadata', metaText);
 
       // Index skill content via BM25
-      const sections = parseSkillSections(skill.content);
       for (const { section, content: sectionContent } of sections) {
         this.#index.add(name, section, sectionContent);
       }
@@ -259,17 +267,18 @@ export class SkillStore {
 
   /**
    * Parse skill content and find a matching section by slug path.
-   * Content is read from cache (populated during load), so this is synchronous.
+   * Routes through getSkill(), which has a disk-read fallback, so this works
+   * even after the LRU cache has evicted the content.
    * @param {string} name
    * @param {string} sectionPath  e.g. 'getting-started/installation'
-   * @returns {string|null}
+   * @returns {Promise<string|null>}
    */
-  getSection(name, sectionPath) {
+  async getSection(name, sectionPath) {
     const meta = this.#skills.get(name);
     if (!meta) return null;
 
-    const content = this.#cache.get(name);
-    if (content === undefined) return null;
+    const content = await this.getSkill(name);
+    if (content === null) return null;
 
     return this.#findSection(content, sectionPath);
   }
@@ -279,21 +288,17 @@ export class SkillStore {
    * @returns {Array<{ name, version, categories, description, integrity, filename }>}
    */
   listSkills() {
-    return [...this.#skills.entries()].map(([name, meta]) => {
-      // Include available section slugs so users know valid load_section paths
-      const content = this.#cache.get(name);
-      const sections = content ? parseSkillSections(content).map(s => s.section) : [];
-
-      return {
-        name,
-        version: meta.frontmatter.version,
-        categories: meta.frontmatter.categories,
-        description: meta.frontmatter.description,
-        integrity: meta.integrity,
-        filename: meta.filename,
-        sections,
-      };
-    });
+    return [...this.#skills.entries()].map(([name, meta]) => ({
+      name,
+      version: meta.frontmatter.version,
+      categories: meta.frontmatter.categories,
+      description: meta.frontmatter.description,
+      integrity: meta.integrity,
+      filename: meta.filename,
+      // Section slugs come from the authoritative map, not the LRU cache,
+      // so they never go empty on an idle server.
+      sections: meta.sectionSlugs ?? [],
+    }));
   }
 
   /**
@@ -302,9 +307,8 @@ export class SkillStore {
    * @returns {string[]}
    */
   getSectionSlugs(name) {
-    const content = this.#cache.get(name);
-    if (content === undefined) return [];
-    return parseSkillSections(content).map(s => s.section);
+    const meta = this.#skills.get(name);
+    return meta?.sectionSlugs ?? [];
   }
 
   /**
@@ -331,8 +335,8 @@ export class SkillStore {
    * @param {string} content
    */
   async addSkill(filename, content) {
-    const targetPath = join(this.#skillsDir, filename);
-    await this.#validateNewFilePath(targetPath);
+    // Single source of truth for containment — path-guard, not a local copy.
+    const targetPath = await validateNewPath(filename, this.#skillsDir);
     await writeFile(targetPath, content, 'utf8');
   }
 
@@ -409,54 +413,4 @@ export class SkillStore {
     }
   }
 
-  /**
-   * Validate a new file path (file doesn't exist yet) stays within skills dir.
-   * Uses null-byte check, traversal-sequence check, and resolved-prefix check.
-   *
-   * Because the file doesn't exist yet we can't realpath it directly. Instead
-   * we realpath the parent directory (which must exist) and join the basename.
-   * @param {string} targetPath
-   */
-  async #validateNewFilePath(targetPath) {
-    if (targetPath.includes('\x00')) {
-      throw new McpError(ERROR_CODES.PATH_VIOLATION, 'Path contains null byte', { targetPath });
-    }
-    if (targetPath.includes('../') || targetPath.includes('..\\')) {
-      throw new McpError(ERROR_CODES.PATH_VIOLATION, 'Path contains traversal sequence', { targetPath });
-    }
-
-    // Resolve the skills dir via realpath (follows symlinks, canonical form)
-    const resolvedSkillsDir = await realpath(this.#skillsDir);
-    const normalizedDir = resolvedSkillsDir.endsWith('/')
-      ? resolvedSkillsDir
-      : resolvedSkillsDir + '/';
-
-    // Realpath the parent of the target (skills dir must already exist).
-    // Then reconstruct the canonical target path using the resolved parent.
-    const { dirname, basename } = await import('node:path');
-    const parentDir = dirname(targetPath);
-    let resolvedParent;
-    try {
-      resolvedParent = await realpath(parentDir);
-    } catch {
-      // Parent doesn't exist — treat as a violation
-      throw new McpError(ERROR_CODES.PATH_VIOLATION, 'Parent directory does not exist', {
-        targetPath,
-        parentDir,
-      });
-    }
-
-    const resolvedTarget = join(resolvedParent, basename(targetPath));
-
-    if (
-      resolvedTarget !== resolvedSkillsDir &&
-      !resolvedTarget.startsWith(normalizedDir)
-    ) {
-      throw new McpError(ERROR_CODES.PATH_VIOLATION, 'Path resolves outside allowed directory', {
-        targetPath,
-        resolvedTarget,
-        allowedDir: resolvedSkillsDir,
-      });
-    }
-  }
 }
