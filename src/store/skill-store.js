@@ -10,6 +10,7 @@ import { BM25Index, parseSkillSections } from './bm25.js';
 import { LRUCache } from './lru-cache.js';
 import { loadManifest, verifySkill } from '../security/ed25519.js';
 import { validateNewPath } from '../security/path-guard.js';
+import { scoreSkill } from './quality-scorer.js';
 
 // ---------------------------------------------------------------------------
 // Frontmatter parsing
@@ -28,6 +29,7 @@ function parseFrontmatter(content) {
     version: null,
     categories: [],
     description: null,
+    sources: [],
   };
 
   // Split on --- delimiter: parts[0] = before opening ---, parts[1] = frontmatter block
@@ -68,6 +70,17 @@ function parseFrontmatter(content) {
           .filter(s => s.length > 0);
         break;
       }
+
+      case 'sources': {
+        // Bracket list of URLs, used by quality-weighted retrieval to score
+        // source authority. Same syntax as category.
+        const inner = rawValue.replace(/^\[/, '').replace(/\]$/, '');
+        result.sources = inner
+          .split(',')
+          .map(s => s.trim().replace(/^["']|["']$/g, ''))
+          .filter(s => s.length > 0);
+        break;
+      }
     }
   }
 
@@ -97,6 +110,12 @@ export class SkillStore {
   /** @type {string} */
   #manifestPath;
 
+  /** @type {boolean} */
+  #qualityWeighting;
+
+  /** @type {number} */
+  #qualityWeight;
+
   constructor(config) {
     this.#config = config;
     this.#skillsDir = join(config.home, 'skills');
@@ -107,6 +126,10 @@ export class SkillStore {
       maxSize: config.cacheSize ?? 100,
       ttlMs: config.cacheTtl ?? 300_000,
     });
+    // Quality-weighted retrieval config. Off → pure BM25 (identical to the
+    // pre-port behavior). qualityWeight clamped to [0, 1].
+    this.#qualityWeighting = config.qualityWeighting !== false;
+    this.#qualityWeight = Math.min(1, Math.max(0, config.qualityWeight ?? 0.4));
   }
 
   // -------------------------------------------------------------------------
@@ -203,6 +226,11 @@ export class SkillStore {
       // server. The map never expires.
       const sections = parseSkillSections(skill.content);
 
+      // Compute quality once at load (µs/skill). Recomputing per load rather
+      // than persisting to the manifest avoids the stale-score problem the
+      // legacy lineage had.
+      const quality = scoreSkill(skill.content, skill.frontmatter.sources);
+
       this.#skills.set(name, {
         filename: skill.filename,
         frontmatter: skill.frontmatter,
@@ -210,6 +238,7 @@ export class SkillStore {
         hash,
         signedAt,
         sectionSlugs: sections.map(s => s.section),
+        quality,
       });
 
       // Pre-populate content cache as a hot-path optimization only.
@@ -231,13 +260,43 @@ export class SkillStore {
   }
 
   /**
-   * Delegate search to BM25 index.
+   * Search skills. BM25 relevance blended with per-skill quality when
+   * quality-weighting is enabled.
+   *
+   * The blend keeps the BM25 index pure: it asks for extra raw results,
+   * normalizes relevance to 0..1 by the max raw score, mixes in the skill's
+   * quality (0..1), and re-sorts. `rawScore` is preserved on every result so
+   * callers (find_and_load's no-match gate) can threshold on unblended
+   * relevance — the blended score is always ~1.0 at the top and useless as a
+   * match/no-match signal.
+   *
    * @param {string} query
    * @param {number} [limit=10]
-   * @returns {Array<{ skill, section, score, snippet }>}
+   * @returns {Array<{ skill, section, score, rawScore, quality, snippet }>}
    */
   search(query, limit = 10) {
-    return this.#index.search(query, limit);
+    if (!this.#qualityWeighting || this.#qualityWeight === 0) {
+      // Pure BM25 — still attach rawScore so callers have one uniform shape.
+      return this.#index.search(query, limit).map(r => ({ ...r, rawScore: r.score, quality: this.#skills.get(r.skill)?.quality ?? 0 }));
+    }
+
+    // Over-fetch so quality can promote a slightly-less-relevant but much
+    // higher-quality skill into the top `limit`.
+    const raw = this.#index.search(query, Math.max(limit * 3, limit));
+    if (raw.length === 0) return [];
+
+    const maxRaw = raw[0].score || 1;
+    const w = this.#qualityWeight;
+
+    return raw
+      .map(r => {
+        const quality = this.#skills.get(r.skill)?.quality ?? 0;
+        const normRelevance = maxRaw > 0 ? r.score / maxRaw : 0;
+        const blended = (1 - w) * normRelevance + w * quality;
+        return { ...r, rawScore: r.score, quality, score: blended };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
   }
 
   /**
@@ -294,6 +353,7 @@ export class SkillStore {
       categories: meta.frontmatter.categories,
       description: meta.frontmatter.description,
       integrity: meta.integrity,
+      quality: meta.quality,
       filename: meta.filename,
       // Section slugs come from the authoritative map, not the LRU cache,
       // so they never go empty on an idle server.
@@ -325,6 +385,7 @@ export class SkillStore {
       integrity: meta.integrity,
       hash: meta.hash,
       signedAt: meta.signedAt,
+      quality: meta.quality,
       filename: meta.filename,
     };
   }
