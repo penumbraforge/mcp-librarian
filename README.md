@@ -4,6 +4,8 @@
 
 Part of [Penumbra Forge](https://penumbraforge.com) — security tooling for the AI-agent era.
 
+![signed skills: tamper a file and the server reports TAMPERED on load](demo/librarian.gif)
+
 ## What is this?
 
 mcp-librarian is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives your AI coding agent a searchable library of **skills** — markdown documents holding structured knowledge (coding patterns, security references, workflow guides). Instead of dumping whole files into context, the agent searches, then pulls exactly the section it needs.

@@ -25,7 +25,7 @@ Sleep 2s
 Type "# Ask the server for a skill's integrity via JSON-RPC:"
 Enter
 Sleep 600ms
-Type `printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_status","arguments":{"skill":"security-hardening"}}}' | node bin/mcp-librarian.js | grep -o '"integrity":"[A-Z]*"'`
+Type `printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"demo","version":"1"}}}' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_status","arguments":{"skill":"security-hardening"}}}' | node bin/mcp-librarian.js 2>/dev/null | grep -oE 'VERIFIED|TAMPERED'`
 Enter
 Sleep 2500ms
 
@@ -39,7 +39,7 @@ Sleep 1s
 Type "# ...and the server reports TAMPERED on the next load — never served silently:"
 Enter
 Sleep 600ms
-Type `printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_status","arguments":{"skill":"security-hardening"}}}' | node bin/mcp-librarian.js | grep -o '"integrity":"[A-Z]*"'`
+Type `printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"demo","version":"1"}}}' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_status","arguments":{"skill":"security-hardening"}}}' | node bin/mcp-librarian.js 2>/dev/null | grep -oE 'VERIFIED|TAMPERED'`
 Enter
 Sleep 3s
 
