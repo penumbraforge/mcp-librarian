@@ -14,6 +14,8 @@ vhs demo/librarian.tape # writes demo/librarian.gif
 Committing the `.tape` rather than only the `.gif` keeps the demo
 reproducible: re-record it any time the CLI output changes.
 
-> Note: the tape uses `mcp-librarian skill-status`, which assumes the CLI is on
-> PATH (via `npm install -g` or a shell alias). Adjust the commands to
-> `node bin/mcp-librarian.js …` if running from a clone.
+> Note: mcp-librarian is a stdio MCP server, not a subcommand CLI — the tape
+> drives it over raw JSON-RPC via `node bin/mcp-librarian.js`, so render from
+> a repo clone. It also re-signs and tampers with the *installed* skill at
+> `~/.mcp-librarian/skills/security-hardening.md`; restore that file (and
+> re-run `node bin/mcp-librarian.js sign`) after rendering.
