@@ -937,16 +937,38 @@ async function handleResearchTopic(args) {
 
 /**
  * Search the web using DuckDuckGo HTML and extract result URLs.
+ *
+ * Best-effort: DuckDuckGo's HTML markup is undocumented and changes. We try
+ * the html.duckduckgo.com endpoint first, then fall back to lite.duckduckgo.com
+ * (a much simpler, more stable page) if the primary yields nothing. Callers
+ * that pass explicit `urls` always have that fallback regardless.
  */
 async function webSearch(query) {
   const encoded = encodeURIComponent(query);
-  const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
 
-  const html = await fetchUrl(url);
+  const endpoints = [
+    { url: `https://html.duckduckgo.com/html/?q=${encoded}`, regex: /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi },
+    // lite endpoint: results are plain <a rel="nofollow" href="...">title</a>
+    { url: `https://lite.duckduckgo.com/lite/?q=${encoded}`, regex: /<a[^>]+rel="nofollow"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi },
+  ];
 
-  // Extract result links from DuckDuckGo HTML results
+  for (const { url, regex } of endpoints) {
+    let html;
+    try {
+      html = await fetchUrl(url);
+    } catch {
+      continue; // try the next endpoint
+    }
+
+    const results = extractDuckDuckGoResults(html, regex);
+    if (results.length > 0) return results;
+  }
+
+  return [];
+}
+
+function extractDuckDuckGoResults(html, linkRegex) {
   const results = [];
-  const linkRegex = /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   let match;
 
   while ((match = linkRegex.exec(html)) !== null && results.length < 15) {

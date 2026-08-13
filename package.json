@@ -1,22 +1,33 @@
 {
   "name": "mcp-librarian",
-  "version": "3.0.0",
-  "description": "Zero-dependency MCP skills server — BM25 search, Ed25519 integrity, progressive disclosure",
+  "version": "3.1.0",
+  "description": "Zero-dependency MCP skills server — quality-weighted BM25 search, Ed25519 integrity, progressive disclosure",
   "type": "module",
   "engines": { "node": ">=22.0.0" },
   "bin": {
     "mcp-librarian": "./bin/mcp-librarian.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "start": "node bin/mcp-librarian.js",
     "test": "node --test test/test-*.js",
     "install-server": "node bin/install.js"
   },
-  "keywords": ["mcp", "skills", "search", "bm25", "ed25519"],
+  "keywords": ["mcp", "skills", "search", "bm25", "ed25519", "agent-security", "prompt-injection"],
   "author": "Shadoe Myers <shadoe@penumbraforge.com>",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/penumbraforge/mcp-librarian.git"
+    "url": "git+https://github.com/penumbraforge/mcp-librarian.git"
+  },
+  "homepage": "https://github.com/penumbraforge/mcp-librarian#readme",
+  "bugs": {
+    "url": "https://github.com/penumbraforge/mcp-librarian/issues"
   }
 }
