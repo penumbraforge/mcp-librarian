@@ -10,11 +10,26 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node: [22]
+        node: [22, 24, 26]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
+
+  pack-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # Catch files-allowlist mistakes: install from the packed tarball and
+      # confirm the bin actually runs.
+      - run: npm pack
+      - run: npm install -g ./mcp-librarian-*.tgz
+      - run: |
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}' \
+            | MCP_LIBRARIAN_HOME="$(mktemp -d)" mcp-librarian | grep -q '"protocolVersion"'
