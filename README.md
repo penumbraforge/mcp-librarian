@@ -4,6 +4,8 @@
 
 Part of [Penumbra Forge](https://penumbraforge.com) — security tooling for the AI-agent era.
 
+**Full documentation:** [penumbraforge.com/librarian/wiki](https://penumbraforge.com/librarian/wiki/)
+
 ![signed skills: tamper a file and the server reports TAMPERED on load](demo/librarian.gif)
 
 ## What is this?
