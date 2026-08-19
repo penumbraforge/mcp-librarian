@@ -1,8 +1,10 @@
 # mcp-librarian
 
-**A signed, integrity-verified skill supply chain for AI agents.** Zero-dependency MCP server with quality-weighted BM25 search, Ed25519 skill signing, prompt-injection defense, and progressive disclosure.
+A local skill library for MCP-speaking coding agents. Zero-dependency MCP server with BM25 search over skill sections, Ed25519 signing on write, integrity checks on load, and progressive disclosure to keep context small.
 
-Part of [Penumbra Forge](https://penumbraforge.com) — security tooling for the AI-agent era.
+**Status: experimental, pre-1.0.** It works, but it hasn't been exercised across many setups, and interfaces may still change. The security features are extra layers, not guarantees — read the [Security](#security) section for what each one actually does.
+
+Part of [Penumbra Forge](https://penumbraforge.com).
 
 **Full documentation:** [penumbraforge.com/librarian/wiki](https://penumbraforge.com/librarian/wiki/)
 
@@ -10,18 +12,18 @@ Part of [Penumbra Forge](https://penumbraforge.com) — security tooling for the
 
 ## What is this?
 
-mcp-librarian is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives your AI coding agent a searchable library of **skills** — markdown documents holding structured knowledge (coding patterns, security references, workflow guides). Instead of dumping whole files into context, the agent searches, then pulls exactly the section it needs.
+mcp-librarian is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives your AI coding agent a searchable library of **skills** — markdown documents holding structured knowledge (coding patterns, security references, workflow guides). Instead of dumping whole files into context, the agent searches, then pulls the section it needs.
 
-It treats skills as a **supply chain to secure**, not just files to serve: skills are Ed25519-signed and integrity-checked on load, all content passes a prompt-injection guard, and every network path is SSRF-hardened and credential-scoped.
+Because skills are files an agent will read and act on, the server also tries to make tampering visible and to reduce what an untrusted skill can talk the agent into: skills are Ed25519-signed and integrity-checked on load, content is scanned for known prompt-injection patterns, and outbound fetches go through an SSRF check with credentials scoped to GitHub hosts.
 
-**Key features:**
+**What it does:**
 - **Quality-weighted BM25 search** — relevance blended with a heuristic skill-quality score (specificity, examples, actionability, source authority). Section-level chunking with stemming.
 - **Progressive disclosure** — `find_and_load` returns just the matching section; `load_section` pulls one slug; `load_skill` pulls the whole file. Survives cache eviction (reads through disk).
-- **Ed25519 signing** — skills are hashed (SHA-256) and signed; tampering is flagged on load. Signing happens automatically on `create_skill` / `install_pack` when a key is present.
-- **Prompt-injection defense** — a content guard scans skill content *and* any fetched web content; web content is wrapped in explicit untrusted-data delimiters.
-- **SSRF-hardened networking** — every fetch rejects private/loopback/metadata addresses, pins the resolved IP against rebinding, and re-vets each redirect hop.
-- **Zero dependencies** — only Node.js built-ins. No supply chain risk of its own.
-- **Works with any MCP client** — Claude Code, Cursor, Windsurf, and more.
+- **Ed25519 signing** — skills are hashed (SHA-256) and signed; a file that changed since signing is flagged on load. Signing happens automatically on `create_skill` / `install_pack` when a key is present.
+- **Content scanning** — a content guard checks skill content *and* any fetched web content against a list of prompt-injection patterns, and wraps web content in explicit untrusted-data delimiters. This is pattern matching, so it is best-effort: it will miss things, and it is not a substitute for reviewing skills you install.
+- **SSRF checks on outbound fetches** — fetches reject private/loopback/metadata addresses, pin the resolved IP against rebinding, and re-vet each redirect hop.
+- **Zero dependencies** — only Node.js built-ins, so this repo is all there is to audit.
+- **MCP clients** — the installer can configure Claude Code, Cursor, and Windsurf; other MCP clients can be pointed at it manually, though they're less tested.
 
 ## Quick Start
 
@@ -31,11 +33,11 @@ cd mcp-librarian
 node bin/install.js
 ```
 
-The installer generates Ed25519 signing keys, detects your MCP client, and offers to configure it (or prints manual instructions).
+The installer generates Ed25519 signing keys, looks for Claude Code, Cursor, and Windsurf, and offers to configure whichever it finds (or prints manual instructions).
 
 ## Tools
 
-The agent gets 14 tools. Ten are **local** (no network). Four are **network** tools, called out explicitly so you always know when the server reaches out.
+The agent gets 14 tools. Ten are **local** (no network). Four are **network** tools, listed separately so it's clear which ones reach out.
 
 ### Local tools
 
@@ -61,16 +63,16 @@ The agent gets 14 tools. Ten are **local** (no network). Four are **network** to
 | `research_topic` | DuckDuckGo + fetched pages | Search the web, rank sources by authority, fetch top results. |
 | `fetch_page` | the given URL | Fetch one page's readable text. |
 
-`find_and_load` is network-capable **only when auto-research is enabled** (`autoResearch`, off by default). With it off, a no-match returns a suggestion to call `research_topic` explicitly.
+`find_and_load` reaches the network only when auto-research is enabled (`autoResearch`, off by default). With it off, a no-match returns a suggestion to call `research_topic` explicitly.
 
 ## Network behavior
 
-There is **no telemetry and no phone-home.** The server makes outbound requests only through the four network tools above, and only when the agent calls them:
+There is no telemetry or phone-home code in the server. Outbound requests come from the four network tools above, when the agent calls them:
 
-- `browse_packs` / `install_pack` fetch from `raw.githubusercontent.com` (your configured skills repo).
-- `research_topic` queries DuckDuckGo and fetches the pages it ranks; `fetch_page` fetches the URL you pass.
-- `GITHUB_TOKEN`, if set, is sent **only** to `raw.githubusercontent.com` / `api.github.com` — never to arbitrary hosts.
-- All fetches are SSRF-guarded (private/loopback/link-local/cloud-metadata addresses rejected, IP pinned against DNS rebinding, redirects re-vetted) and size-capped.
+- `browse_packs` / `install_pack` fetch from `raw.githubusercontent.com` (your configured skills repo). Setting `allowArbitraryPackUrls: true` lets `install_pack` fetch a pack from another host; it is off by default, and such requests are sent without credentials.
+- `research_topic` queries DuckDuckGo (`html.duckduckgo.com`, falling back to `lite.duckduckgo.com`) and fetches the pages it ranks; `fetch_page` fetches the URL you pass.
+- `GITHUB_TOKEN`, if set, is attached only for requests to `raw.githubusercontent.com` and `api.github.com`.
+- Fetches go through the SSRF guard (private/loopback/link-local/cloud-metadata addresses rejected, IP pinned against DNS rebinding, redirects re-vetted) and are size-capped.
 - Fetched web content is run through the content guard and wrapped in untrusted-data delimiters before the agent sees it.
 
 ## Skill Format
@@ -97,7 +99,7 @@ Drop `.md` files in `~/.mcp-librarian/skills/` — they're indexed at server sta
 
 ## Community Skill Packs
 
-Browse and install packs from [penumbraforge/mcp-librarian-skills](https://github.com/penumbraforge/mcp-librarian-skills). A CI workflow there validates pack structure, frontmatter, and content-guard compliance on every PR.
+Browse and install packs from [penumbraforge/mcp-librarian-skills](https://github.com/penumbraforge/mcp-librarian-skills). A CI workflow there checks pack structure, frontmatter, and content-guard compliance on incoming PRs. The packs are community-contributed, so read one before installing it.
 
 **Contributing:** fork the skills repo, add your pack under `packs/your-pack-name/`, and open a PR.
 
@@ -129,13 +131,17 @@ Or `~/.mcp-librarian/config.json`:
 
 ## Security
 
-- **Ed25519 signing** — every skill is hashed (SHA-256) and signed; tampered files are flagged on load. `create_skill` and `install_pack` sign automatically when a signing key exists.
-- **Content guard** — scans for prompt-injection patterns (ChatML tokens, instruction overrides, Unicode tricks) in skill content *and* fetched web content. Blocks in prose, allows in code fences (security skills need real payloads).
+These are layers, not guarantees. They're worth understanding individually so you know what each one covers.
+
+- **Ed25519 signing** — skills are hashed (SHA-256) and signed; a file edited after signing is flagged on load. `create_skill` and `install_pack` sign automatically when a signing key exists. This detects changes on disk; it does not tell you whether the skill's content was trustworthy to begin with.
+- **Content guard** — a regex pattern list for known prompt-injection shapes (ChatML tokens, instruction overrides, Unicode tricks), applied to skill content *and* fetched web content. It flags matches in prose and skips code fences, since security skills need real payloads. Pattern matching catches known forms and misses novel ones, so treat it as a filter rather than protection.
 - **SSRF guard** — outbound fetches reject private/loopback/link-local/metadata addresses, pin the resolved IP, and re-vet every redirect.
-- **Path guard** — prevents directory traversal and symlink escape on every write (`create_skill`, `install_pack`, `export_pack`).
-- **Credential scoping** — `GITHUB_TOKEN` is sent to GitHub hosts only.
-- **Opt-in web research** — `find_and_load` never reaches the network on a weak match unless you enable it.
+- **Path guard** — checks for directory traversal and symlink escape on writes (`create_skill`, `install_pack`, `export_pack`).
+- **Credential scoping** — `GITHUB_TOKEN` is attached only for requests to GitHub hosts.
+- **Opt-in web research** — with `autoResearch` off (the default), `find_and_load` does not reach the network on a weak match.
 - **Rate limiting** — bounds runaway tool loops.
+
+If you find a hole in any of this, an issue or a PR is welcome.
 
 ## Manual Client Configuration
 
