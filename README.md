@@ -1,29 +1,18 @@
 # mcp-librarian
 
-**A signed, integrity-verified skill supply chain for AI agents.** Zero-dependency MCP server with quality-weighted BM25 search, Ed25519 skill signing, prompt-injection defense, and progressive disclosure.
+mcp-librarian is a local Model Context Protocol (MCP) stdio server for indexing and retrieving Markdown "skill" documents. It provides quality-weighted BM25 search, section-level retrieval, locally generated Ed25519 integrity status, skill authoring/export tools, and opt-in network research and pack installation.
 
-Part of [Penumbra Forge](https://penumbraforge.com) — security tooling for the AI-agent era.
+**Status: experimental.** The package is at version 3.1.0, but it has not been exercised across every MCP client, filesystem, or hostile-content case, and the boundaries below still need enforcement work.
 
-**Full documentation:** [penumbraforge.com/librarian/wiki](https://penumbraforge.com/librarian/wiki/)
+The integrity and content-safety features are useful signals, not an enforcement sandbox or a provenance system. Read the [integrity model](#integrity-model) and [current limits](#current-implementation-limits) before putting untrusted material in an agent's context.
 
-![signed skills: tamper a file and the server reports TAMPERED on load](demo/librarian.gif)
+**Documentation:** [penumbraforge.com/librarian/wiki](https://penumbraforge.com/librarian/wiki/)
 
-## What is this?
+![A demonstration of mcp-librarian reporting indexed integrity status](demo/librarian.gif)
 
-mcp-librarian is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives your AI coding agent a searchable library of **skills** — markdown documents holding structured knowledge (coding patterns, security references, workflow guides). Instead of dumping whole files into context, the agent searches, then pulls exactly the section it needs.
+## Quick start
 
-It treats skills as a **supply chain to secure**, not just files to serve: skills are Ed25519-signed and integrity-checked on load, all content passes a prompt-injection guard, and every network path is SSRF-hardened and credential-scoped.
-
-**Key features:**
-- **Quality-weighted BM25 search** — relevance blended with a heuristic skill-quality score (specificity, examples, actionability, source authority). Section-level chunking with stemming.
-- **Progressive disclosure** — `find_and_load` returns just the matching section; `load_section` pulls one slug; `load_skill` pulls the whole file. Survives cache eviction (reads through disk).
-- **Ed25519 signing** — skills are hashed (SHA-256) and signed; tampering is flagged on load. Signing happens automatically on `create_skill` / `install_pack` when a key is present.
-- **Prompt-injection defense** — a content guard scans skill content *and* any fetched web content; web content is wrapped in explicit untrusted-data delimiters.
-- **SSRF-hardened networking** — every fetch rejects private/loopback/metadata addresses, pins the resolved IP against rebinding, and re-vets each redirect hop.
-- **Zero dependencies** — only Node.js built-ins. No supply chain risk of its own.
-- **Works with any MCP client** — Claude Code, Cursor, Windsurf, and more.
-
-## Quick Start
+Requires Node.js 22 or later.
 
 ```bash
 git clone https://github.com/penumbraforge/mcp-librarian.git
@@ -31,49 +20,72 @@ cd mcp-librarian
 node bin/install.js
 ```
 
-The installer generates Ed25519 signing keys, detects your MCP client, and offers to configure it (or prints manual instructions).
+The installer creates `~/.mcp-librarian/`, generates a local Ed25519 keypair, installs any bundled starter skills that are not already present, and offers to configure detected MCP clients. Existing keys are preserved unless you approve regeneration.
+
+For a client that is not detected automatically:
+
+```json
+{
+  "mcpServers": {
+    "mcp-librarian": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-librarian/bin/mcp-librarian.js"]
+    }
+  }
+}
+```
+
+The server uses only Node.js built-ins at runtime. That removes third-party runtime packages from this repository; it does not remove risk from Node.js, the repository/download path, MCP clients, installed skills, remote packs, or fetched web content.
+
+## Retrieval model
+
+Skills are Markdown files with small YAML-like frontmatter and `##`/`###` sections. At server startup, mcp-librarian:
+
+1. reads `.md` files from the configured skills directory;
+2. parses a limited frontmatter shape;
+3. computes a heuristic quality score;
+4. evaluates each file against the local signature manifest and public key;
+5. builds a BM25 index over metadata and sections; and
+6. caches full content with disk fallback after cache eviction.
+
+Search ranking blends BM25 relevance with a heuristic quality score by default. Quality considers document structure, examples, actionability, and declared source domains. It does not establish that a document is correct, current, safe, or authoritative.
 
 ## Tools
 
-The agent gets 14 tools. Ten are **local** (no network). Four are **network** tools, called out explicitly so you always know when the server reaches out.
+The current server exposes 14 tools: nine always-local tools, one normally-local tool that can be configured to research automatically, and four explicit network tools.
 
-### Local tools
+### Always local
 
-| Tool | What it does |
-|------|-------------|
-| `find_skill` | Quality-weighted BM25 search. Returns ranked results with scores. |
-| `find_and_load` | Search and return the top skill's content in one call (progressive disclosure). |
-| `load_skill` | Load a complete skill file plus its section slugs. |
-| `load_section` | Load one section by slug for focused context. |
-| `list_skills` | List installed skills with metadata, quality score, and section slugs. |
-| `skill_status` | A skill's integrity: `VERIFIED` / `TAMPERED` / `UNSIGNED`. |
-| `validate_skill` | Check structure + content-guard compliance without saving. |
-| `create_skill` | Validate and save a new skill (auto-signed if a key is present). |
-| `export_pack` | Export your skills as a shareable pack. |
-| `server_status` | Version, skill count, index stats, config. |
+| Tool | Current behavior |
+|------|------------------|
+| `find_skill` | Search the in-memory BM25 index and return ranked matches. |
+| `load_skill` | Return a complete skill plus its section slugs. Does not enforce integrity status at read time. |
+| `load_section` | Return one indexed section by slug. Does not enforce integrity status at read time. |
+| `list_skills` | List indexed metadata, quality scores, sections, and integrity status. |
+| `skill_status` | Return the integrity result calculated at the last startup/rebuild. |
+| `validate_skill` | Run structural checks plus the heuristic content guard without writing. |
+| `create_skill` | Validate and write a skill; re-sign the local collection if a private key is present. |
+| `export_pack` | Write selected local skills and a `pack.json` under the configured home directory. |
+| `server_status` | Return server/index/config summary. See the version-reporting limit below. |
 
-### Network tools
+### Conditional network behavior
 
-| Tool | Reaches | What it does |
-|------|---------|-------------|
-| `browse_packs` | `raw.githubusercontent.com` | List community packs from the skills repo. |
-| `install_pack` | `raw.githubusercontent.com` | Download and install a community pack (auto-signed). |
-| `research_topic` | DuckDuckGo + fetched pages | Search the web, rank sources by authority, fetch top results. |
-| `fetch_page` | the given URL | Fetch one page's readable text. |
+| Tool | Current behavior |
+|------|------------------|
+| `find_and_load` | Load the top local match. If no strong match exists, it stays local by default; with `autoResearch: true`, it can invoke web research. |
 
-`find_and_load` is network-capable **only when auto-research is enabled** (`autoResearch`, off by default). With it off, a no-match returns a suggestion to call `research_topic` explicitly.
+### Explicit network tools
 
-## Network behavior
+| Tool | Default destination | Current behavior |
+|------|---------------------|------------------|
+| `browse_packs` | `raw.githubusercontent.com` | Fetch the configured community-pack index. |
+| `install_pack` | `raw.githubusercontent.com` | Fetch a pack manifest/files, screen them, write accepted files, and optionally re-sign the local collection. |
+| `research_topic` | DuckDuckGo and result pages | Search, rank, and fetch a bounded set of pages. |
+| `fetch_page` | Caller-provided HTTP(S) URL | Fetch one page and return extracted text. |
 
-There is **no telemetry and no phone-home.** The server makes outbound requests only through the four network tools above, and only when the agent calls them:
+There is no intentional telemetry or startup phone-home. Outbound requests occur when one of the explicit network tools is called, or when `find_and_load` auto-research is deliberately enabled and no strong local match is found.
 
-- `browse_packs` / `install_pack` fetch from `raw.githubusercontent.com` (your configured skills repo).
-- `research_topic` queries DuckDuckGo and fetches the pages it ranks; `fetch_page` fetches the URL you pass.
-- `GITHUB_TOKEN`, if set, is sent **only** to `raw.githubusercontent.com` / `api.github.com` — never to arbitrary hosts.
-- All fetches are SSRF-guarded (private/loopback/link-local/cloud-metadata addresses rejected, IP pinned against DNS rebinding, redirects re-vetted) and size-capped.
-- Fetched web content is run through the content guard and wrapped in untrusted-data delimiters before the agent sees it.
-
-## Skill Format
+## Skill format
 
 ```markdown
 ---
@@ -81,41 +93,65 @@ name: my-skill
 version: 1.0.0
 category: [development, patterns]
 description: Brief description for search results
-sources: [https://docs.example.com/guide]   # optional; boosts quality score
+sources: [https://docs.example.com/guide]
 ---
 
 ## Section Heading
 
-Content here. Indexed by BM25 at the section level.
+Content here.
 
-### Sub-Section
+### Sub-section
 
-Finer-grained content. Loaded independently via `load_section`.
+More focused content for `load_section`.
 ```
 
-Drop `.md` files in `~/.mcp-librarian/skills/` — they're indexed at server start.
+The parser is intentionally limited; it is not a general YAML parser. Use `validate_skill` before `create_skill`, and review the resulting file yourself.
 
-## Community Skill Packs
+## Integrity model
 
-Browse and install packs from [penumbraforge/mcp-librarian-skills](https://github.com/penumbraforge/mcp-librarian-skills). A CI workflow there validates pack structure, frontmatter, and content-guard compliance on every PR.
+The installer generates a keypair that belongs to that local installation. `create_skill` and accepted `install_pack` writes re-sign the local collection when the private key is available; `node bin/mcp-librarian.js sign` signs the current collection manually.
 
-**Contributing:** fork the skills repo, add your pack under `packs/your-pack-name/`, and open a PR.
+At startup or index rebuild, each skill is labelled:
+
+- `VERIFIED`: the file matched an entry signed by the configured local key.
+- `TAMPERED`: a manifest entry existed but its hash/signature did not validate.
+- `UNSIGNED`: no usable local manifest/key entry was available.
+
+These labels are advisory metadata. `load_skill`, `load_section`, `find_and_load`, and MCP resource reads do not currently re-verify or refuse `TAMPERED`/`UNSIGNED` content. Integrity is calculated at startup/rebuild and stored with the index; a file changed while the server is running can diverge from that status, especially after the content cache expires. Restart or rebuild to refresh the label, and check `skill_status` before relying on a skill.
+
+A `VERIFIED` label proves only that bytes matched a signature from the local key. It does not authenticate the upstream pack author, review the content, or establish a provenance chain. Material installed from a remote pack is signed locally after acceptance. Bundled or manually copied skills can remain `UNSIGNED` until an explicit signing pass.
+
+## Content guard
+
+The content guard is a pattern-based prompt-injection heuristic. It looks for selected model-control tokens, instruction-override phrases, suspicious Unicode, XML-like control tags, and large encoded payloads. Fenced and indented code blocks are exempt so security/reference skills can contain examples.
+
+The guard runs for `validate_skill`, `create_skill`, and files accepted by `install_pack`. Fetched web text is scanned and wrapped in visible `UNTRUSTED` delimiters; flagged fetched text can still be returned for review. Files dropped directly into the skills directory are indexed at startup without a content-guard pass, and ordinary loads do not rescan them.
+
+The guard can miss adversarial instructions and can flag benign prose. Agents and users must continue to treat all skill and web content as untrusted data.
+
+## Network and pack boundaries
+
+`fetch_page` and page fetches used by `research_topic` route through a network guard that rejects loopback/private/link-local/metadata targets, vets DNS results, pins the selected address, re-vets redirects, applies timeouts, and caps response size. These controls reduce SSRF exposure but are not a guarantee that remote content is safe or truthful.
+
+`install_pack` uses a separate fetch path. By default direct pack manifests must use HTTPS on `raw.githubusercontent.com`; requests are size- and time-bounded, and `GITHUB_TOKEN` is attached only to GitHub hosts in the credential allowlist. Setting `allowArbitraryPackUrls: true` permits caller-provided pack URLs and expands the network trust boundary; non-GitHub hosts do not receive the GitHub credential.
+
+`install_pack` fetches all declared files before writing, applies the heuristic content guard, and attempts rollback if a write fails. It does not currently apply the full `validate_skill` structural validation to every pack file, verify an upstream publisher signature, or provide a durable transaction across all filesystem failures. Review a pack and back up important local skills before installing it.
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `MCP_LIBRARIAN_HOME` | `~/.mcp-librarian` | Base directory |
-| `MCP_LIBRARIAN_LOG_LEVEL` | `info` | debug, info, warning, error |
-| `MCP_LIBRARIAN_RATE_LIMIT` | `200` | Max requests per minute |
-| `MCP_LIBRARIAN_CACHE_SIZE` | `100` | LRU cache entries |
-| `MCP_LIBRARIAN_CACHE_TTL` | `600000` | Content cache TTL in ms |
-| `MCP_LIBRARIAN_SKILLS_REPO` | `penumbraforge/mcp-librarian-skills` | Pack source repo |
-| `MCP_LIBRARIAN_AUTO_RESEARCH` | `false` | Allow `find_and_load` to auto-fetch from the web |
-| `MCP_LIBRARIAN_QUALITY_WEIGHT` | `0.4` | Quality vs. relevance blend (0–1) |
-| `GITHUB_TOKEN` | (unset) | Higher GitHub rate limits (sent to GitHub hosts only) |
+| Environment variable | Default | Meaning |
+|----------------------|---------|---------|
+| `MCP_LIBRARIAN_HOME` | `~/.mcp-librarian` | Base directory for skills, keys, manifest, config, and exports. |
+| `MCP_LIBRARIAN_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, or `error`. |
+| `MCP_LIBRARIAN_RATE_LIMIT` | `200` | Requests per minute. |
+| `MCP_LIBRARIAN_CACHE_SIZE` | `100` | LRU cache entries. |
+| `MCP_LIBRARIAN_CACHE_TTL` | `600000` | Cache TTL in milliseconds. |
+| `MCP_LIBRARIAN_SKILLS_REPO` | `penumbraforge/mcp-librarian-skills` | Repository used for default pack URLs. |
+| `MCP_LIBRARIAN_AUTO_RESEARCH` | `false` | Permit no-match `find_and_load` calls to research the web. |
+| `MCP_LIBRARIAN_QUALITY_WEIGHT` | `0.4` | Heuristic quality/relevance blend from 0 to 1. |
+| `GITHUB_TOKEN` | unset | Higher GitHub limits; sent only to the GitHub hostname allowlist. |
 
-Or `~/.mcp-librarian/config.json`:
+Example `~/.mcp-librarian/config.json`:
 
 ```json
 {
@@ -127,46 +163,47 @@ Or `~/.mcp-librarian/config.json`:
 }
 ```
 
-## Security
+The config file is trusted local input and is not exhaustively schema-validated. Environment values receive more validation than all equivalent file values. Review configuration changes, particularly repository names, arbitrary pack URLs, rate/cache sizes, and auto-research.
 
-- **Ed25519 signing** — every skill is hashed (SHA-256) and signed; tampered files are flagged on load. `create_skill` and `install_pack` sign automatically when a signing key exists.
-- **Content guard** — scans for prompt-injection patterns (ChatML tokens, instruction overrides, Unicode tricks) in skill content *and* fetched web content. Blocks in prose, allows in code fences (security skills need real payloads).
-- **SSRF guard** — outbound fetches reject private/loopback/link-local/metadata addresses, pin the resolved IP, and re-vet every redirect.
-- **Path guard** — prevents directory traversal and symlink escape on every write (`create_skill`, `install_pack`, `export_pack`).
-- **Credential scoping** — `GITHUB_TOKEN` is sent to GitHub hosts only.
-- **Opt-in web research** — `find_and_load` never reaches the network on a weak match unless you enable it.
-- **Rate limiting** — bounds runaway tool loops.
+## Current implementation limits
 
-## Manual Client Configuration
+- Package version is `3.1.0`, while `server_status` currently reports a hard-coded `3.0.0`.
+- Integrity labels are indexed observations, not load-time access control.
+- Directly added disk content bypasses structural/content validation at startup.
+- Local re-signing of installed packs does not establish upstream authorship.
+- Pack screening and web-content pattern checks are partial defenses, not a sandbox.
+- The installer targets common macOS/Linux/WSL client locations; other clients may need manual configuration.
 
-```json
-{
-  "mcp-librarian": {
-    "command": "node",
-    "args": ["/path/to/mcp-librarian/bin/mcp-librarian.js"]
-  }
-}
-```
+## Community packs
+
+The default pack catalog is [penumbraforge/mcp-librarian-skills](https://github.com/penumbraforge/mcp-librarian-skills). Treat it like any other remote code/content source: inspect the repository's current `main` content, `pack.json`, and each skill before installation. You can point `MCP_LIBRARIAN_SKILLS_REPO` at a different repository you control.
 
 ## Migrating an older install
 
-If you previously ran the Unix-socket lineage (skills stored as `<name>/SKILL.md`), convert to the flat layout once:
+If an older Unix-socket installation stored skills as `<name>/SKILL.md`, inspect and run the one-time converter:
 
 ```bash
 node bin/migrate.js
 ```
 
+Back up the existing library first.
+
+## Development
+
+```bash
+npm test
+node bin/mcp-librarian.js
+```
+
+The test suite covers protocol handling, search/index behavior, guards, signing primitives, configuration, caching, and pack/tool paths. Passing tests do not establish security against every hostile skill, URL, filesystem, or MCP client.
+
 ## Roadmap
 
-- Quality scoring via a local LLM (Ollama) on top of the current heuristics.
-- Skill provenance chains — signed attestations of where a skill's content came from.
-- Publish to npm (`npm install -g mcp-librarian`).
-
-## Requirements
-
-- Node.js >= 22.0.0
-- macOS or Linux (Windows via WSL)
+- Re-verify and enforce integrity at every content read.
+- Separate upstream publisher attestations from local installation signatures.
+- Apply one structural validation contract to direct files, authored skills, and pack installs.
+- Replace the heuristic guard with layered, testable trust policies while retaining explicit untrusted-data boundaries.
 
 ## License
 
-Apache-2.0 — Copyright 2026 [Penumbra Forge](https://penumbraforge.com) (Shadoe Myers)
+Apache-2.0. Copyright 2026 [Penumbra Forge](https://penumbraforge.com) (Shadoe Myers). See [LICENSE](LICENSE).

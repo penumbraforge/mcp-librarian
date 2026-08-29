@@ -1,7 +1,7 @@
 {
   "name": "mcp-librarian",
   "version": "3.1.0",
-  "description": "Zero-dependency MCP skills server — quality-weighted BM25 search, Ed25519 integrity, progressive disclosure",
+  "description": "MCP skills server with BM25 retrieval, indexed Ed25519 status, and no external runtime packages",
   "type": "module",
   "engines": { "node": ">=22.0.0" },
   "bin": {
