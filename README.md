@@ -109,7 +109,7 @@ The parser is intentionally limited; it is not a general YAML parser. Use `valid
 
 ## Integrity model
 
-The installer generates a keypair that belongs to that local installation. `create_skill` and accepted `install_pack` writes re-sign the local collection when the private key is available; `node bin/mcp-librarian.js sign` signs the current collection manually.
+The installer generates a keypair that belongs to that local installation. Successful writes from `create_skill` and `install_pack` re-sign the local collection when the private key is available; `node bin/mcp-librarian.js sign` signs the current collection manually.
 
 At startup or index rebuild, each skill is labelled:
 
